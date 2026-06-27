@@ -14310,7 +14310,12 @@ def _ws_host_origin_reason(ws: "WebSocket") -> Optional[str]:
         return None
 
     host_header = ws.headers.get("host", "")
-    if not _is_accepted_host(host_header, bound_host):
+    public_host = (
+        getattr(app.state, "dashboard_public_host", "")
+        if getattr(app.state, "auth_required", False)
+        else ""
+    )
+    if not _is_accepted_host(host_header, bound_host, public_host=public_host):
         return f"host_mismatch host={host_header or '?'} bound={bound_host}"
 
     origin = ws.headers.get("origin", "")
@@ -14327,7 +14332,7 @@ def _ws_host_origin_reason(ws: "WebSocket") -> Optional[str]:
     if not parsed.netloc:
         return f"origin_mismatch origin={origin} bound={bound_host}"
 
-    if not _is_accepted_host(parsed.netloc, bound_host):
+    if not _is_accepted_host(parsed.netloc, bound_host, public_host=public_host):
         return f"origin_mismatch origin={origin} bound={bound_host}"
     return None
 
