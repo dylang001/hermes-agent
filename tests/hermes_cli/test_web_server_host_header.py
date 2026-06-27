@@ -54,6 +54,19 @@ class TestHostHeaderValidator:
                     f"bound={bound} must reject attacker host={attacker!r}"
                 )
 
+    def test_loopback_bind_accepts_declared_public_host_only(self):
+        from hermes_cli.web_server import _is_accepted_host
+
+        assert _is_accepted_host(
+            "hermes.example", "127.0.0.1", public_host="hermes.example"
+        )
+        assert _is_accepted_host(
+            "hermes.example:443", "127.0.0.1", public_host="hermes.example"
+        )
+        assert not _is_accepted_host(
+            "evil.example", "127.0.0.1", public_host="hermes.example"
+        )
+
     def test_zero_zero_bind_accepts_anything(self):
         """0.0.0.0 means operator explicitly opted into all-interfaces
         (requires --insecure). No Host-layer defence is possible — rely
