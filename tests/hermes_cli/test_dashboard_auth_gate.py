@@ -167,6 +167,7 @@ def _stub_uvicorn_run(monkeypatch):
 def test_start_server_loopback_sets_auth_required_false(monkeypatch):
     """Loopback bind: app.state.auth_required is False after start_server."""
     _stub_uvicorn_run(monkeypatch)
+    monkeypatch.setattr(web_server, "_configured_dashboard_public_host", lambda: "")
     # Force a fresh state to detect that start_server actually set it.
     web_server.app.state.auth_required = None
     web_server.start_server(
@@ -174,6 +175,30 @@ def test_start_server_loopback_sets_auth_required_false(monkeypatch):
         open_browser=False, allow_public=False,
     )
     assert web_server.app.state.auth_required is False
+
+
+def test_start_server_loopback_public_url_engages_auth_gate(monkeypatch):
+    """Loopback bind behind a declared public URL must use cookie auth."""
+    from hermes_cli.dashboard_auth import clear_providers, register_provider
+    from tests.hermes_cli.conftest_dashboard_auth import StubAuthProvider
+
+    clear_providers()
+    register_provider(StubAuthProvider())
+    _stub_uvicorn_run(monkeypatch)
+    monkeypatch.setattr(
+        web_server, "_configured_dashboard_public_host", lambda: "hermes.example"
+    )
+    web_server.app.state.auth_required = None
+    web_server.app.state.dashboard_public_host = ""
+    try:
+        web_server.start_server(
+            host="127.0.0.1", port=9119,
+            open_browser=False, allow_public=False,
+        )
+        assert web_server.app.state.auth_required is True
+        assert web_server.app.state.dashboard_public_host == "hermes.example"
+    finally:
+        clear_providers()
 
 
 def test_start_server_insecure_public_no_longer_bypasses_gate(monkeypatch):

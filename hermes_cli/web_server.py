@@ -412,7 +412,31 @@ def should_require_auth(host: str, allow_public: bool = False) -> bool:
     return host not in _LOOPBACK_HOST_VALUES
 
 
-def _is_accepted_host(host_header: str, bound_host: str) -> bool:
+def _configured_dashboard_public_host() -> str:
+    """Return the configured public dashboard hostname, if any."""
+    try:
+        from hermes_cli.dashboard_auth.prefix import resolve_public_url
+
+        public_url = resolve_public_url()
+    except Exception:
+        return ""
+    if not public_url:
+        return ""
+    parsed = urllib.parse.urlparse(public_url)
+    return (parsed.hostname or "").strip().lower()
+
+
+def _should_require_auth_for_runtime(host: str) -> bool:
+    if should_require_auth(host):
+        return True
+    return (host or "").strip().lower() in _LOOPBACK_HOST_VALUES and bool(
+        _configured_dashboard_public_host()
+    )
+
+
+def _is_accepted_host(
+    host_header: str, bound_host: str, *, public_host: str = ""
+) -> bool:
     """True if the Host header targets the interface we bound to.
 
     Accepts:
@@ -440,6 +464,10 @@ def _is_accepted_host(host_header: str, bound_host: str) -> bool:
     else:
         host_only = h.rsplit(":", 1)[0] if ":" in h else h
     host_only = host_only.lower()
+
+    public_lc = (public_host or "").strip().lower()
+    if public_lc and host_only == public_lc:
+        return True
 
     # 0.0.0.0 bind means operator explicitly opted into all-interfaces
     # (requires --insecure per web_server.start_server). No Host-layer
@@ -473,7 +501,14 @@ async def host_header_middleware(request: Request, call_next):
     bound_host = getattr(app.state, "bound_host", None)
     if bound_host:
         host_header = request.headers.get("host", "")
-        if not _is_accepted_host(host_header, bound_host):
+        public_host = (
+            getattr(app.state, "dashboard_public_host", "")
+            if getattr(app.state, "auth_required", False)
+            else ""
+        )
+        if not _is_accepted_host(
+            host_header, bound_host, public_host=public_host
+        ):
             return JSONResponse(
                 status_code=400,
                 content={
@@ -16899,7 +16934,8 @@ def start_server(
     # injection / WS-auth paths can branch on it consistently.  Phase 3.5
     # uses this to decide whether to refuse the bind, log the gate-on
     # banner, and enable uvicorn proxy_headers.
-    app.state.auth_required = should_require_auth(host)
+    app.state.dashboard_public_host = _configured_dashboard_public_host()
+    app.state.auth_required = _should_require_auth_for_runtime(host)
 
     # ``--insecure`` no longer disables the auth gate (June 2026 hardening:
     # the hermes-0day MCP-persistence campaign abused unauthenticated public
@@ -16964,11 +17000,19 @@ def start_server(
                 f"engages on non-loopback binds, but no auth providers are "
                 f"registered.\n\n" + _fix_hint
             )
-        _log.info(
-            "Dashboard binding to %s with auth gate enabled. Providers: %s",
-            host,
-            ", ".join(p.name for p in list_providers()),
-        )
+        if (host or "").strip().lower() in _LOOPBACK_HOST_VALUES and app.state.dashboard_public_host:
+            _log.info(
+                "Dashboard binding to %s with auth gate enabled for public host %s. Providers: %s",
+                host,
+                app.state.dashboard_public_host,
+                ", ".join(p.name for p in list_providers()),
+            )
+        else:
+            _log.info(
+                "Dashboard binding to %s with auth gate enabled. Providers: %s",
+                host,
+                ", ".join(p.name for p in list_providers()),
+            )
 
     # Record the bound host so host_header_middleware can validate incoming
     # Host headers against it. Defends against DNS rebinding (GHSA-ppp5-vxwm-4cf7).
