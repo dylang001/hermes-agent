@@ -873,6 +873,53 @@ class TestPasteCallbackReader:
         err = capsys.readouterr().err
         assert "did not contain" in err or "Could not parse" in err
 
+    def test_missing_callback_params_noop(self, monkeypatch, capsys):
+        result = self._empty_result()
+        monkeypatch.setattr(
+            "sys.stdin",
+            MagicMock(readline=lambda: "https://example/callback?state=only-state\n"),
+        )
+        _paste_callback_reader(result)
+        assert result["auth_code"] is None
+        assert result["error"] is None
+        assert "did not contain" in capsys.readouterr().err
+
+    def test_paste_callback_then_token_persistence_does_not_leak(
+        self, tmp_path, monkeypatch, caplog, capsys
+    ):
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        result = self._empty_result()
+        monkeypatch.setattr(
+            "sys.stdin",
+            MagicMock(
+                readline=lambda: (
+                    "http://127.0.0.1:37949/callback?"
+                    "code=SUPER_SECRET_CODE&state=STATE_OK\n"
+                )
+            ),
+        )
+
+        _paste_callback_reader(result)
+        assert result["auth_code"] == "SUPER_SECRET_CODE"
+        assert result["state"] == "STATE_OK"
+
+        storage = HermesTokenStorage("zoho")
+        mock_token = MagicMock()
+        mock_token.model_dump.return_value = {
+            "access_token": "ACCESS_SECRET",
+            "token_type": "Bearer",
+            "refresh_token": "REFRESH_SECRET",
+            "expires_in": 3600,
+        }
+        asyncio.run(storage.set_tokens(mock_token))
+
+        assert (tmp_path / "mcp-tokens" / "zoho.json").exists()
+        captured = capsys.readouterr()
+        public_text = captured.out + captured.err + caplog.text
+        assert "SUPER_SECRET_CODE" not in public_text
+        assert "ACCESS_SECRET" not in public_text
+        assert "REFRESH_SECRET" not in public_text
+
     def test_skips_when_http_listener_already_won(self, monkeypatch):
         """If HTTP listener filled the result first, paste must not overwrite."""
         result = {"auth_code": "from_http", "state": "http_state", "error": None}
