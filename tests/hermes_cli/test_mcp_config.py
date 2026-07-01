@@ -870,9 +870,7 @@ class TestMcpLogin:
         # Probe returns tools even though auth never completed.
         monkeypatch.setattr(
             "hermes_cli.mcp_config._probe_single_server",
-            lambda name, cfg, connect_timeout=30: [
-                ("search_files", "d"), ("read_file_content", "d"),
-            ],
+            lambda name, cfg, **kw: [("search_files", "d"), ("read_file_content", "d")],
         )
         # No token file is created → _oauth_tokens_present() returns False.
         from hermes_cli.mcp_config import cmd_mcp_login
@@ -896,8 +894,8 @@ class TestMcpLogin:
         # probe drops a token file, mirroring a successful authorization.
         seen = {}
 
-        def mock_probe(name, cfg, connect_timeout=30):
-            seen["connect_timeout"] = connect_timeout
+        def mock_probe(name, cfg, **kw):
+            seen["connect_timeout"] = kw.get("connect_timeout")
             token_dir.mkdir(exist_ok=True)
             (token_dir / "realserver.json").write_text('{"access_token": "x"}')
             return [("a", "d"), ("b", "d"), ("c", "d")]
@@ -916,6 +914,96 @@ class TestMcpLogin:
         # The login path must grant a human enough time to finish the browser
         # OAuth round-trip — far longer than the 30s probe default.
         assert seen["connect_timeout"] >= 180
+
+    def test_login_uses_configured_timeout_for_oauth_probe(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """`timeout` must bound OAuth login when connect_timeout is absent."""
+        _seed_config(tmp_path, {
+            "zoho": {
+                "url": "https://lead-management.example/mcp/message",
+                "auth": "oauth",
+                "timeout": 1200,
+            },
+        })
+        token_dir = tmp_path / "mcp-tokens"
+        seen = {}
+
+        def mock_probe(name, cfg, **kw):
+            seen["connect_timeout"] = kw.get("connect_timeout")
+            token_dir.mkdir(exist_ok=True)
+            (token_dir / "zoho.json").write_text('{"access_token": "x"}')
+            return [("lead_search", "d")]
+
+        monkeypatch.setattr("hermes_cli.mcp_config._probe_single_server", mock_probe)
+
+        from hermes_cli.mcp_config import cmd_mcp_login
+
+        cmd_mcp_login(_make_args(name="zoho"))
+        assert seen["connect_timeout"] == 1200
+        assert "Authenticated" in capsys.readouterr().out
+
+    def test_login_connect_timeout_overrides_tool_timeout(
+        self, tmp_path, monkeypatch
+    ):
+        _seed_config(tmp_path, {
+            "zoho": {
+                "url": "https://lead-management.example/mcp/message",
+                "auth": "oauth",
+                "timeout": 1200,
+                "connect_timeout": 90,
+            },
+        })
+        seen = {}
+
+        def mock_probe(name, cfg, **kw):
+            seen["connect_timeout"] = kw.get("connect_timeout")
+            token_dir = tmp_path / "mcp-tokens"
+            token_dir.mkdir(exist_ok=True)
+            (token_dir / "zoho.json").write_text('{"access_token": "x"}')
+            return []
+
+        monkeypatch.setattr("hermes_cli.mcp_config._probe_single_server", mock_probe)
+
+        from hermes_cli.mcp_config import cmd_mcp_login
+
+        cmd_mcp_login(_make_args(name="zoho"))
+        assert seen["connect_timeout"] == 90
+
+    def test_login_timeout_reports_oauth_stage_and_redacts_secrets(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        _seed_config(tmp_path, {
+            "zoho": {
+                "url": "https://lead-management.example/mcp/message",
+                "auth": "oauth",
+                "timeout": 1200,
+            },
+        })
+
+        def boom(name, cfg, **kw):
+            raise TimeoutError(
+                "MCP call timed out after 1200s; "
+                "http://127.0.0.1:1234/callback?code=SECRET_CODE&state=SECRET_STATE "
+                "access_token=SECRET_TOKEN client_secret=SECRET_CLIENT"
+            )
+
+        monkeypatch.setattr("hermes_cli.mcp_config._probe_single_server", boom)
+        monkeypatch.setattr(
+            "hermes_cli.mcp_config._oauth_stage_for_server",
+            lambda name: "token_exchange",
+        )
+
+        from hermes_cli.mcp_config import cmd_mcp_login
+
+        cmd_mcp_login(_make_args(name="zoho"))
+        out = capsys.readouterr().out
+        assert "OAuth stage 'token_exchange'" in out
+        assert "SECRET_CODE" not in out
+        assert "SECRET_STATE" not in out
+        assert "SECRET_TOKEN" not in out
+        assert "SECRET_CLIENT" not in out
+        assert "<oauth-url-redacted>" in out
 
 
 # ---------------------------------------------------------------------------

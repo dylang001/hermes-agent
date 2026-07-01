@@ -366,6 +366,51 @@ def _oauth_tokens_present(name: str) -> bool:
         return True
 
 
+def _oauth_login_probe_timeout(server_config: dict) -> float:
+    """Return the timeout used by ``hermes mcp login``'s auth probe.
+
+    OAuth login performs discovery, dynamic client registration, browser
+    callback handling, token exchange, and the initial MCP initialize/tools
+    probe. Historically this path always used 30s, so raising a server's
+    configured ``timeout`` did not affect login at all. Prefer an explicit
+    ``connect_timeout`` when present; otherwise let an OAuth server's
+    configured ``timeout`` bound the login probe.
+    """
+    for key in ("connect_timeout", "timeout"):
+        raw = server_config.get(key)
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 30.0
+
+
+_OAUTH_ERROR_SECRET_RE = re.compile(
+    r"(?i)(code|state|access_token|refresh_token|client_secret|token)=([^&\s]+)"
+)
+_OAUTH_CALLBACK_URL_RE = re.compile(
+    r"(?i)https?://\S*(?:callback|code=|state=)\S*"
+)
+
+
+def _sanitize_oauth_error_message(message: str) -> str:
+    """Redact OAuth callback URLs and token-like params from CLI errors."""
+    text = _OAUTH_CALLBACK_URL_RE.sub("<oauth-url-redacted>", str(message))
+    return _OAUTH_ERROR_SECRET_RE.sub(r"\1=<redacted>", text)
+
+
+def _oauth_stage_for_server(name: str) -> Optional[str]:
+    try:
+        from tools.mcp_oauth_manager import get_manager
+        return get_manager().get_stage(name)
+    except Exception:
+        return None
+
+
 def _unwrap_exception_group(exc: BaseException) -> Exception:
     """Extract the root-cause exception from anyio TaskGroup wrappers.
 
@@ -785,20 +830,10 @@ def _reauth_oauth_server(name: str, server_config: dict) -> bool:
     _info(f"Starting OAuth flow for '{name}'...")
 
     # Probe triggers the OAuth flow (browser redirect + callback capture).
-    # Honor the server's configured connect_timeout so a human has enough
-    # time to complete the browser sign-in; the 30s default is too tight for
-    # an interactive OAuth round-trip. Floor at 315s — the OAuth callback
-    # window (300s in mcp_oauth) plus headroom — matching the GUI re-auth
-    # path in web_server.py so CLI and dashboard behave identically.
     try:
-        _login_connect_timeout = server_config.get("connect_timeout")
-        try:
-            _login_connect_timeout = float(_login_connect_timeout)
-        except (TypeError, ValueError):
-            _login_connect_timeout = 0.0
-        _login_connect_timeout = max(_login_connect_timeout, 315.0)
+        login_timeout = _oauth_login_probe_timeout(server_config)
         tools = _probe_single_server(
-            name, server_config, connect_timeout=_login_connect_timeout
+            name, server_config, connect_timeout=login_timeout
         )
         # A clean probe is NOT proof of authentication. Some MCP servers
         # (notably Google's official Drive server) serve initialize +
@@ -836,7 +871,12 @@ def _reauth_oauth_server(name: str, server_config: dict) -> bool:
             _success("Authenticated (server reported no tools)")
         return True
     except Exception as exc:
-        _error(f"Authentication failed: {exc}")
+        stage = _oauth_stage_for_server(name)
+        detail = _sanitize_oauth_error_message(str(exc))
+        if stage:
+            _error(f"Authentication failed during OAuth stage '{stage}': {detail}")
+        else:
+            _error(f"Authentication failed: {detail}")
         return False
 
 

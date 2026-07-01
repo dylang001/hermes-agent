@@ -43,6 +43,38 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+_OAUTH_STAGE_BY_SERVER: dict[str, str] = {}
+_OAUTH_STAGE_LOCK = threading.Lock()
+
+
+def _set_oauth_stage(server_name: str, stage: str) -> None:
+    """Record the current OAuth stage without URLs, tokens, or callback data."""
+    with _OAUTH_STAGE_LOCK:
+        _OAUTH_STAGE_BY_SERVER[server_name] = stage
+
+
+def get_oauth_stage(server_name: str) -> Optional[str]:
+    """Return the last recorded OAuth stage for diagnostics."""
+    with _OAUTH_STAGE_LOCK:
+        return _OAUTH_STAGE_BY_SERVER.get(server_name)
+
+
+def _describe_oauth_request_stage(request: Any) -> str:
+    """Classify an SDK-generated OAuth request for timeout/error reporting."""
+    method = str(getattr(request, "method", "") or "").upper()
+    url_obj = getattr(request, "url", None)
+    path = str(getattr(url_obj, "path", "") or "").lower()
+
+    if ".well-known/oauth-protected-resource" in path:
+        return "protected_resource_metadata_discovery"
+    if ".well-known/oauth-authorization-server" in path:
+        return "authorization_server_metadata_discovery"
+    if method == "POST" and "register" in path:
+        return "client_registration"
+    if method == "POST" and "token" in path:
+        return "token_exchange"
+    return "mcp_request"
+
 
 def _same_endpoint(a: str, b: str) -> bool:
     """Return True if two URLs target the same endpoint (ignoring query/fragment).
@@ -143,6 +175,8 @@ def _make_hermes_provider_class() -> Optional[type]:
             # registration can't help. Only auto-heal dynamically-registered
             # clients. See _maybe_flag_poisoned_client.
             self._hermes_preregistered = preregistered
+            if server_name:
+                _set_oauth_stage(server_name, "provider_initialized")
 
         async def _initialize(self) -> None:
             """Load stored tokens + client info AND seed token_expiry_time.
@@ -417,7 +451,15 @@ def _make_hermes_provider_class() -> Optional[type]:
             try:
                 outgoing = await inner.__anext__()
                 while True:
+                    stage = _describe_oauth_request_stage(outgoing)
+                    _set_oauth_stage(self._hermes_server_name, stage)
                     incoming = yield outgoing
+                    status = getattr(incoming, "status_code", None)
+                    if isinstance(status, int) and status >= 400:
+                        _set_oauth_stage(
+                            self._hermes_server_name,
+                            f"{stage}_http_{status}",
+                        )
                     # Sniff the response for a dead-client-registration signal
                     # before handing it back to the SDK (best-effort, GH#36767).
                     await self._maybe_flag_poisoned_client(incoming)
@@ -426,6 +468,9 @@ def _make_hermes_provider_class() -> Optional[type]:
                 # Persist any metadata the SDK discovered lazily during the
                 # 401 branch so a subsequent cold-load skips discovery.
                 self._persist_oauth_metadata_if_changed()
+                current_stage = get_oauth_stage(self._hermes_server_name)
+                if not current_stage or "_http_" not in current_stage:
+                    _set_oauth_stage(self._hermes_server_name, "complete")
                 return
 
     return HermesMCPOAuthProvider
@@ -564,6 +609,8 @@ class MCPOAuthManager:
         """
         with self._entries_lock:
             self._entries.pop(server_name, None)
+        with _OAUTH_STAGE_LOCK:
+            _OAUTH_STAGE_BY_SERVER.pop(server_name, None)
 
         from tools.mcp_oauth import remove_oauth_tokens
         remove_oauth_tokens(server_name)
@@ -571,6 +618,10 @@ class MCPOAuthManager:
             "MCP OAuth '%s': evicted from cache and removed from disk",
             server_name,
         )
+
+    def get_stage(self, server_name: str) -> Optional[str]:
+        """Return the last non-secret OAuth stage recorded for a server."""
+        return get_oauth_stage(server_name)
 
     # -- Disk watch ----------------------------------------------------------
 

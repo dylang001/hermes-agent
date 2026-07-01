@@ -460,3 +460,34 @@ def test_bridge_forwards_requests_and_poisons_on_token_endpoint_400(
     assert not (d / "srv.client.json").exists()
     assert provider._initialized is False
     assert provider.context.client_info is None
+
+
+def test_bridge_records_token_endpoint_error_stage(tmp_path, monkeypatch):
+    """A token endpoint error should leave a non-secret diagnostic stage."""
+    import httpx
+    from mcp.client.auth.oauth2 import OAuthClientProvider
+    from tools.mcp_oauth_manager import get_oauth_stage
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    token_ep = "https://idp.example.com/oauth/token"
+
+    async def fake_base_flow(self, request):
+        response = yield httpx.Request("POST", token_ep, data={"code": "SECRET"})
+        assert response.status_code == 400
+
+    monkeypatch.setattr(OAuthClientProvider, "async_auth_flow", fake_base_flow)
+
+    provider = _provider_with_token_endpoint(tmp_path, {}, token_ep, monkeypatch)
+    provider.context.oauth_metadata = _FakeMeta(token_ep)
+
+    async def drive():
+        gen = provider.async_auth_flow(object())
+        await gen.__anext__()
+        try:
+            await gen.asend(_fake_response(400, token_ep, b'{"error":"invalid_grant"}'))
+        except StopAsyncIteration:
+            pass
+
+    asyncio.run(drive())
+
+    assert get_oauth_stage("srv") == "token_exchange_http_400"
