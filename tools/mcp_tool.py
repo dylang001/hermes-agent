@@ -947,6 +947,15 @@ def _safe_numeric(value, default, coerce=int, minimum=1):
         return default
 
 
+def _connect_timeout_from_config(config: dict) -> float:
+    """Return the initial MCP connection timeout for a server config."""
+    if "connect_timeout" in config:
+        return _safe_numeric(
+            config.get("connect_timeout"), _DEFAULT_CONNECT_TIMEOUT, float
+        )
+    return _safe_numeric(config.get("timeout"), _DEFAULT_CONNECT_TIMEOUT, float)
+
+
 class SamplingHandler:
     """Handles sampling/createMessage requests for a single MCP server.
 
@@ -2348,7 +2357,7 @@ class MCPServerTask:
         # case-insensitive so conventional casing is preserved.
         if not any(key.lower() == "mcp-protocol-version" for key in headers):
             headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
-        connect_timeout = config.get("connect_timeout", _DEFAULT_CONNECT_TIMEOUT)
+        connect_timeout = _connect_timeout_from_config(config)
         ssl_verify = config.get("ssl_verify", True)
         client_cert = _resolve_client_cert(self.name, config)
 
@@ -4847,7 +4856,7 @@ async def _discover_and_register_server(name: str, config: dict) -> List[str]:
 
     Returns list of registered tool names.
     """
-    connect_timeout = config.get("connect_timeout", _DEFAULT_CONNECT_TIMEOUT)
+    connect_timeout = _connect_timeout_from_config(config)
     server = await asyncio.wait_for(
         _connect_server(name, config),
         timeout=connect_timeout,
@@ -5174,7 +5183,7 @@ def probe_mcp_server_tools() -> Dict[str, List[tuple]]:
         names = list(enabled.keys())
         coros = []
         for name, cfg in enabled.items():
-            ct = cfg.get("connect_timeout", _DEFAULT_CONNECT_TIMEOUT)
+            ct = _connect_timeout_from_config(cfg)
             coros.append(asyncio.wait_for(_connect_server(name, cfg), timeout=ct))
 
         outcomes = await asyncio.gather(*coros, return_exceptions=True)

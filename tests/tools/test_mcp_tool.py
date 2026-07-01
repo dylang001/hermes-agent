@@ -2196,6 +2196,21 @@ class TestReconnection:
 class TestConfigurableTimeouts:
     """Tests for configurable per-server timeouts."""
 
+    def test_connect_timeout_falls_back_to_timeout(self):
+        """OAuth login/connect paths should honor timeout when connect_timeout is absent."""
+        from tools.mcp_tool import _connect_timeout_from_config
+
+        assert _connect_timeout_from_config({"timeout": 1200}) == 1200
+
+    def test_connect_timeout_takes_precedence_over_timeout(self):
+        """Explicit connect_timeout remains the initial connection timeout."""
+        from tools.mcp_tool import _connect_timeout_from_config
+
+        assert _connect_timeout_from_config({
+            "timeout": 1200,
+            "connect_timeout": 90,
+        }) == 90
+
     def test_default_timeout(self):
         """Server with no timeout config gets _DEFAULT_TOOL_TIMEOUT."""
         from tools.mcp_tool import MCPServerTask, _DEFAULT_TOOL_TIMEOUT
