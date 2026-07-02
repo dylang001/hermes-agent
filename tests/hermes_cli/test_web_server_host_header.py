@@ -164,6 +164,12 @@ class TestHostHeaderMiddleware:
 class TestWebSocketHostOriginGuard:
     """WebSocket upgrades must enforce the same dashboard boundary as HTTP."""
 
+    @pytest.fixture(autouse=True)
+    def clean_auth_state(self, monkeypatch):
+        import hermes_cli.web_server as ws
+        monkeypatch.setattr(ws.app.state, "auth_required", False, raising=False)
+        monkeypatch.setattr(ws.app.state, "dashboard_public_host", "", raising=False)
+
     def test_rebinding_websocket_host_is_rejected(self, monkeypatch):
         from fastapi.testclient import TestClient
         from starlette.websockets import WebSocketDisconnect

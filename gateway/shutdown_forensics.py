@@ -248,6 +248,19 @@ def spawn_async_diagnostic(
     except OSError:
         return None
 
+    import shutil
+    timeout_cmd = "timeout"
+    if not shutil.which("timeout"):
+        if shutil.which("gtimeout"):
+            timeout_cmd = "gtimeout"
+        else:
+            timeout_cmd = None
+
+    if timeout_cmd:
+        cmd_args = [timeout_cmd, f"{timeout_seconds:.0f}", "bash", "-c", script]
+    else:
+        cmd_args = ["bash", "-c", script]
+
     try:
         # Detach from our process group so the subprocess survives even
         # if systemd kills our cgroup with KillMode=control-group (which
@@ -255,7 +268,7 @@ def spawn_async_diagnostic(
         # start_new_session, a SIGKILL on our cgroup takes the diag down
         # before it can flush.
         proc = subprocess.Popen(
-            ["timeout", f"{timeout_seconds:.0f}", "bash", "-c", script],
+            cmd_args,
             stdout=fd,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
