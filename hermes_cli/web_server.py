@@ -409,6 +409,8 @@ def should_require_auth(host: str, allow_public: bool = False) -> bool:
     MCP-persistence campaign, where ``--insecure --host 0.0.0.0`` left the
     config/MCP/agent surface open to internet scanners.
     """
+    if os.environ.get("HERMES_DASHBOARD_PUBLIC_URL"):
+        return True
     return host not in _LOOPBACK_HOST_VALUES
 
 
