@@ -96,6 +96,14 @@ class TestHostHeaderValidator:
         assert _is_accepted_host("LOCALHOST", "127.0.0.1")
         assert _is_accepted_host("LocalHost:9119", "127.0.0.1")
 
+    def test_public_url_host_is_accepted(self, monkeypatch):
+        from hermes_cli.web_server import _is_accepted_host
+
+        monkeypatch.setenv("HERMES_DASHBOARD_PUBLIC_URL", "https://hermes.meetlyra.live")
+        assert _is_accepted_host("hermes.meetlyra.live", "127.0.0.1")
+        assert _is_accepted_host("hermes.meetlyra.live:9119", "127.0.0.1")
+        assert not _is_accepted_host("evil.example", "127.0.0.1")
+
 
 class TestHostHeaderMiddleware:
     """End-to-end test via the FastAPI app — verify the middleware
