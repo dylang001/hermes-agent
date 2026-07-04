@@ -185,6 +185,7 @@ class TestWebSocketHostOriginGuard:
         import hermes_cli.web_server as ws
 
         monkeypatch.setattr(ws.app.state, "bound_host", "127.0.0.1", raising=False)
+        monkeypatch.setattr(ws.app.state, "auth_required", False, raising=False)
         monkeypatch.setattr(ws, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True)
 
         client = TestClient(ws.app)
@@ -208,6 +209,7 @@ class TestWebSocketHostOriginGuard:
         import hermes_cli.web_server as ws
 
         monkeypatch.setattr(ws.app.state, "bound_host", "127.0.0.1", raising=False)
+        monkeypatch.setattr(ws.app.state, "auth_required", False, raising=False)
         monkeypatch.setattr(ws, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True)
 
         client = TestClient(ws.app)
@@ -230,6 +232,7 @@ class TestWebSocketHostOriginGuard:
         import hermes_cli.web_server as ws
 
         monkeypatch.setattr(ws.app.state, "bound_host", "127.0.0.1", raising=False)
+        monkeypatch.setattr(ws.app.state, "auth_required", False, raising=False)
         monkeypatch.setattr(ws, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True)
 
         client = TestClient(ws.app)
