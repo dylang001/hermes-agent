@@ -187,6 +187,18 @@ _USAGE_LIMIT_TRANSIENT_SIGNALS = [
     "window",
 ]
 
+# OpenCode Go returns HTTP 429 for account/workspace quota exhaustion.  The
+# reset window can be days, so treating this as ordinary Retry-After throttling
+# leaves gateway workers sleeping and retrying the same exhausted credential.
+_OPENCODE_GO_QUOTA_PATTERNS = [
+    "gousagelimiterror",
+    "weekly usage limit reached",
+    "usage limit reached",
+    "enable usage from your available balance",
+    "available balance",
+    "exhausted credits",
+]
+
 # Payload-too-large patterns detected from message text (no status_code attr).
 # Proxies and some backends embed the HTTP status in the error message.
 _PAYLOAD_TOO_LARGE_PATTERNS = [
@@ -980,6 +992,15 @@ def _classify_by_status(
                 should_rotate_credential=False,
                 should_fallback=True,
                 error_context=ctx,
+            )
+        if provider.strip().lower() == "opencode-go" and any(
+            p in error_msg for p in _OPENCODE_GO_QUOTA_PATTERNS
+        ):
+            return result_fn(
+                FailoverReason.billing,
+                retryable=False,
+                should_rotate_credential=True,
+                should_fallback=True,
             )
         return result_fn(
             FailoverReason.rate_limit,
