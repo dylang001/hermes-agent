@@ -1228,6 +1228,15 @@ def _fallback_entry_unavailable_without_network(agent, fb: dict) -> Optional[str
     return None
 
 
+def _fallback_entry_has_explicit_credential(fb: dict) -> bool:
+    """Return True when a fallback entry names a distinct credential source."""
+    for key in ("api_key", "key_env", "api_key_env"):
+        value = fb.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
+
+
 
 def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool:
     """Switch to the next fallback model/provider in the chain.
@@ -1301,7 +1310,9 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
     current_model = (getattr(agent, "model", "") or "").strip()
     current_base_url = str(getattr(agent, "base_url", "") or "").rstrip("/").lower()
     fb_base_url_for_dedup = (fb.get("base_url") or "").strip().rstrip("/").lower()
-    if fb_provider == current_provider and fb_model == current_model:
+    explicit_credential_fallback = _fallback_entry_has_explicit_credential(fb)
+    same_provider_model = fb_provider == current_provider and fb_model == current_model
+    if same_provider_model and not explicit_credential_fallback:
         logger.warning(
             "Fallback skip: chain entry %s/%s matches current provider/model",
             fb_provider, fb_model,
@@ -1312,6 +1323,7 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
         and current_base_url
         and fb_base_url_for_dedup == current_base_url
         and fb_model == current_model
+        and not explicit_credential_fallback
     ):
         logger.warning(
             "Fallback skip: chain entry base_url %s matches current backend",
@@ -1397,6 +1409,10 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
             and base_url_host_matches(fb_base_url, "amazonaws.com")
         ):
             fb_api_mode = "bedrock_converse"
+        if same_provider_model and explicit_credential_fallback:
+            current_api_mode = getattr(agent, "api_mode", None)
+            if current_api_mode:
+                fb_api_mode = current_api_mode
 
         old_model = agent.model
         old_provider = agent.provider
@@ -1412,6 +1428,12 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
         if hasattr(agent, "_transport_cache"):
             agent._transport_cache.clear()
         agent._fallback_activated = True
+        if same_provider_model and explicit_credential_fallback:
+            logger.info(
+                "Fallback key rotation activated for %s/%s using key_slot=fallback",
+                fb_provider,
+                fb_model,
+            )
 
         # Rebind the credential pool to the fallback provider when the provider
         # changes.  Keeping the primary pool attached would make downstream

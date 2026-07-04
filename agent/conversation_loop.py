@@ -4052,7 +4052,23 @@ def run_conversation(
                         )
                     agent._persist_session(messages, conversation_history)
                     if classified.reason == FailoverReason.billing:
-                        _final_response = f"Billing or credits exhausted: {_final_summary}"
+                        _same_opencode_fallback = any(
+                            isinstance(_fb, dict)
+                            and str(_fb.get("provider") or "").strip().lower() == "opencode-go"
+                            and str(_fb.get("model") or "").strip() == "minimax-m3"
+                            for _fb in (getattr(agent, "_fallback_chain", None) or [])
+                        )
+                        if (
+                            str(_provider or "").strip().lower() == "opencode-go"
+                            and str(_model or "").strip() == "minimax-m3"
+                            and _same_opencode_fallback
+                        ):
+                            _final_response = (
+                                "OpenCode Go MiniMax M3 quota exhausted on both "
+                                f"configured credentials: {_final_summary}"
+                            )
+                        else:
+                            _final_response = f"Billing or credits exhausted: {_final_summary}"
                         if _billing_guidance:
                             _final_response += f"\n\n{_billing_guidance}"
                     else:
