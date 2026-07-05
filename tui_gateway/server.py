@@ -2610,6 +2610,9 @@ def _load_enabled_toolsets() -> list[str] | None:
         for item in os.environ.get("HERMES_TUI_TOOLSETS", "").split(",")
         if item.strip()
     ]
+    no_mcp = "no_mcp" in explicit
+    if no_mcp:
+        explicit = [item for item in explicit if item != "no_mcp"]
     cfg = None
     fallback_notice = None
 
@@ -2667,6 +2670,16 @@ def _load_enabled_toolsets() -> list[str] | None:
             return None
 
         if not unresolved:
+            return built_in
+
+        if no_mcp:
+            unknown = [name for name in unresolved if name not in built_in]
+            if unknown:
+                print(
+                    f"[tui] ignoring unknown HERMES_TUI_TOOLSETS entries: {', '.join(unknown)}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             return built_in
 
         mcp_names: set[str] = set()
