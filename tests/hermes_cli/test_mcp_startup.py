@@ -146,6 +146,35 @@ def test_background_mcp_discovery_suppresses_interactive_oauth(monkeypatch):
     assert state["active"] is False
 
 
+def test_background_mcp_discovery_honors_dashboard_disable_env(monkeypatch):
+    calls = {"config": 0, "mcp": 0}
+    monkeypatch.setenv("HERMES_DISABLE_MCP_IN_DASHBOARD", "1")
+    monkeypatch.setitem(
+        sys.modules,
+        "hermes_cli.config",
+        types.SimpleNamespace(
+            read_raw_config=lambda: calls.__setitem__("config", calls["config"] + 1)
+            or {"mcp_servers": {"demo": {"transport": "stdio"}}},
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "tools.mcp_tool",
+        types.SimpleNamespace(
+            discover_mcp_tools=lambda: calls.__setitem__("mcp", calls["mcp"] + 1)
+        ),
+    )
+
+    mcp_startup.start_background_mcp_discovery(
+        logger=types.SimpleNamespace(debug=lambda *_a, **_k: None),
+        thread_name="dashboard-mcp-discovery",
+    )
+
+    assert calls == {"config": 0, "mcp": 0}
+    assert mcp_startup._mcp_discovery_started is True
+    assert mcp_startup._mcp_discovery_thread is None
+
+
 def test_prepare_agent_startup_skips_mcp_bootstrap_for_tui_chat(monkeypatch):
     calls = {"mcp": 0}
 

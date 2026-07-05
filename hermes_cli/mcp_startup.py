@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from contextlib import nullcontext
 from typing import Optional
+import os
 
 _mcp_discovery_lock = threading.Lock()
 _mcp_discovery_started = False
@@ -32,6 +33,13 @@ def start_background_mcp_discovery(*, logger, thread_name: str) -> None:
         if _mcp_discovery_started:
             return
         _mcp_discovery_started = True
+        if os.environ.get("HERMES_DISABLE_MCP_IN_DASHBOARD", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return
         if not _has_configured_mcp_servers():
             return
 

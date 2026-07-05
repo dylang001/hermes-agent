@@ -724,6 +724,28 @@ def test_load_enabled_toolsets_filters_invalid_tui_env(monkeypatch, capsys):
     assert "nope" in capsys.readouterr().err
 
 
+def test_load_enabled_toolsets_no_mcp_env_skips_mcp_resolution(monkeypatch, capsys):
+    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "web,no_mcp,exa-mcp")
+    monkeypatch.setitem(
+        sys.modules,
+        "hermes_cli.plugins",
+        types.SimpleNamespace(discover_plugins=lambda: None),
+    )
+
+    import hermes_cli.config as config_mod
+
+    monkeypatch.setattr(
+        config_mod,
+        "read_raw_config",
+        lambda: {"mcp_servers": {"exa-mcp": {"enabled": True}}},
+    )
+
+    assert server._load_enabled_toolsets() == ["web"]
+    err = capsys.readouterr().err
+    assert "exa-mcp" in err
+    assert "using configured CLI toolsets" not in err
+
+
 def test_load_enabled_toolsets_accepts_plugin_env_after_discovery(monkeypatch):
     monkeypatch.setenv("HERMES_TUI_TOOLSETS", "plugin_demo")
 
