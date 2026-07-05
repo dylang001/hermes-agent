@@ -8,7 +8,8 @@ httpx.HTTPStatusError(401), the handler should:
      hallucinating manual refresh attempts.
 """
 import json
-from unittest.mock import MagicMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,6 +29,39 @@ def test_is_auth_error_detects_oauth_non_interactive():
     from tools.mcp_oauth import OAuthNonInteractiveError
 
     assert _is_auth_error(OAuthNonInteractiveError("no browser")) is True
+
+
+def test_is_auth_error_detects_oauth_non_interactive_inside_exception_group():
+    from tools.mcp_tool import _is_auth_error
+    from tools.mcp_oauth import OAuthNonInteractiveError
+
+    exc = ExceptionGroup(
+        "unhandled errors in a TaskGroup",
+        [OAuthNonInteractiveError("no browser")],
+    )
+
+    assert _is_auth_error(exc) is True
+
+
+def test_oauth_server_without_cached_tokens_skips_noninteractive_startup(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+
+    from tools.mcp_oauth import OAuthNonInteractiveError, suppress_interactive_oauth
+    from tools.mcp_tool import MCPServerTask
+
+    async def _run():
+        server = MCPServerTask("zoho")
+        with suppress_interactive_oauth(), patch.object(
+            MCPServerTask,
+            "_run_http",
+            AsyncMock(side_effect=AssertionError("should not start OAuth transport")),
+        ):
+            await server.run({"url": "https://mcp.example.test/mcp", "auth": "oauth"})
+
+        assert server._ready.is_set()
+        assert isinstance(server._error, OAuthNonInteractiveError)
+
+    asyncio.run(_run())
 
 
 def test_is_auth_error_detects_httpx_401():
