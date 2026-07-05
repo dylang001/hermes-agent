@@ -2624,6 +2624,37 @@ class MCPServerTask:
         self._idle_timeout_seconds = _get_lifecycle_seconds(config, "idle_timeout_seconds")
         self._max_lifetime_seconds = _get_lifecycle_seconds(config, "max_lifetime_seconds")
 
+        if self._auth_type == "oauth":
+            try:
+                from tools.mcp_oauth import (
+                    HermesTokenStorage,
+                    OAuthNonInteractiveError,
+                    _is_interactive,
+                )
+
+                if (
+                    not _is_interactive()
+                    and not HermesTokenStorage(self.name).has_cached_tokens()
+                ):
+                    exc = OAuthNonInteractiveError(
+                        "MCP OAuth for "
+                        f"'{self.name}': non-interactive environment and no "
+                        "cached tokens found. Run `hermes mcp login "
+                        f"{self.name}` interactively first to complete initial "
+                        "authorization."
+                    )
+                    logger.warning(
+                        "MCP server '%s' requires OAuth but has no cached "
+                        "tokens in a non-interactive context; skipping startup "
+                        "until authorized.",
+                        self.name,
+                    )
+                    self._error = exc
+                    self._ready.set()
+                    return
+            except ImportError:
+                pass
+
         # Set up sampling handler if enabled and SDK types are available
         sampling_config = config.get("sampling", {})
         if sampling_config.get("enabled", True) and _MCP_SAMPLING_TYPES:
@@ -3189,6 +3220,9 @@ def _is_auth_error(exc: BaseException) -> bool:
     response status code is 401. Other HTTP errors fall through to the
     generic error path in the tool handlers.
     """
+    if isinstance(exc, BaseExceptionGroup):
+        return any(_is_auth_error(child) for child in exc.exceptions)
+
     types = _get_auth_error_types()
     if not types or not isinstance(exc, types):
         return False
