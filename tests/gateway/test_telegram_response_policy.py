@@ -172,6 +172,26 @@ Reviewer: Dylan
     assert "Only thing still unresolved" in result
 
 
+def test_telegram_generic_short_status_preserves_key_facts(monkeypatch):
+    monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, "Hermes status checked.")
+    lowered = result.lower()
+    assert result != "Hermes status checked."
+    assert "hermes is online" in lowered
+    assert "gateway" in lowered and "active" in lowered
+    assert "dashboard" in lowered and "active" in lowered
+    assert "telegram concise mode is on" in lowered
+    assert "clickup ids are still unresolved" in lowered
+    assert "|" not in result
+    assert "Blocked" not in result
+
+
+def test_telegram_generic_short_status_preserves_no_changes(monkeypatch):
+    monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, "Hermes status checked. No changes made.")
+    assert "No changes made." in result
+
+
 def test_telegram_full_report_expands_without_wrong_approval(monkeypatch):
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     text = """Need approval - # Hermes — Full Status Report Generated
