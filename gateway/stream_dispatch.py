@@ -110,6 +110,7 @@ class GatewayEventDispatcher:
             )
             # None == adapter chose to eat this event (can't render tool chrome).
             if line:
+                line = self._shape_telegram_stream_text(line)
                 self._enqueue_tool_line(line)
             return
 
@@ -127,6 +128,18 @@ class GatewayEventDispatcher:
             if self._on_notice is not None:
                 self._on_notice(event)
             return
+
+    def _shape_telegram_stream_text(self, text: str) -> str:
+        try:
+            from gateway.telegram_response_policy import apply_telegram_stream_policy
+
+            return apply_telegram_stream_policy(
+                getattr(self.adapter, "platform", None),
+                text,
+                status=True,
+            )
+        except Exception:
+            return text
 
 
 __all__ = ["GatewayEventDispatcher"]
