@@ -46,6 +46,8 @@ def _agent(enabled=True):
             {"type": "function", "function": {"name": "terminal", "parameters": {"type": "object"}}},
             {"type": "function", "function": {"name": "read_file", "parameters": {"type": "object"}}},
             {"type": "function", "function": {"name": "search_files", "parameters": {"type": "object"}}},
+            {"type": "function", "function": {"name": "web_search", "parameters": {"type": "object"}}},
+            {"type": "function", "function": {"name": "web_extract", "parameters": {"type": "object"}}},
             {"type": "function", "function": {"name": "browser_navigate", "parameters": {"type": "object"}}},
             {"type": "function", "function": {"name": "gmail_search", "parameters": {"type": "object"}}},
             {"type": "function", "function": {"name": "calendar_availability", "parameters": {"type": "object"}}},
@@ -71,6 +73,8 @@ def test_classifier_expectations_for_phase_1_5_cases():
         "Produce a daily priorities briefing from inbox, calendar, and tasks.": "analysis_or_research",
         "Apply the approved code patch and run focused tests.": "execution_task",
         "Investigate provider quota/auth failures and recommend fallback action.": "analysis_or_research",
+        "Hey Hermes what's the weather like tomorrow?": "scoped_lookup",
+        "What's the forecast for Cape Town tomorrow?": "scoped_lookup",
         "What is JSON?": "direct_answer",
     }
     for prompt, expected in cases.items():
@@ -197,7 +201,18 @@ def test_report_captures_real_runtime_request_sizes(monkeypatch, tmp_path):
     assert report["runtime_request_estimated_tokens"] > 0
     assert report["request_message_count"] == 2
     assert report["injected_memory_count"] == 2
-    assert report["tools_exposed"] == ["browser_navigate", "calendar_availability", "gmail_search", "patch", "read_file", "search_files", "terminal", "write_file"]
+    assert report["tools_exposed"] == [
+        "browser_navigate",
+        "calendar_availability",
+        "gmail_search",
+        "patch",
+        "read_file",
+        "search_files",
+        "terminal",
+        "web_extract",
+        "web_search",
+        "write_file",
+    ]
     assert report["tools_called"] == ["read_file"]
     assert report["tool_attempts"] == 1
     assert report["tool_successes"] == 1
@@ -331,6 +346,8 @@ def test_tool_policy_required_exposure_groups_are_deterministic():
         "Apply the approved code patch.": "engineering_execution",
         "Review this config file in read-only mode.": "workspace_readonly",
         "Use the mystery connector tool.": "full_current_default",
+        "Hey Hermes what's the weather like tomorrow?": "research",
+        "What's the forecast for Cape Town tomorrow?": "research",
     }
     for prompt, expected in cases.items():
         assert decide_tool_exposure_group(prompt)[0] == expected
@@ -357,9 +374,15 @@ def test_tool_policy_filters_direct_research_personal_and_engineering_groups():
 
     research = apply_tool_policy(agent, user_message="Research current pricing on the web.", api_kwargs={"tools": list(agent.tools)})
     research_names = [tool["function"]["name"] for tool in research["tools"]]
-    assert research_names == ["browser_navigate"]
+    assert research_names == ["web_search", "web_extract", "browser_navigate"]
     assert "gmail_search" not in research_names
     assert "patch" not in research_names
+
+    weather = apply_tool_policy(agent, user_message="Hey Hermes what's the weather like tomorrow?", api_kwargs={"tools": list(agent.tools)})
+    weather_names = [tool["function"]["name"] for tool in weather["tools"]]
+    assert "web_search" in weather_names
+    assert "gmail_search" not in weather_names
+    assert "patch" not in weather_names
 
     personal = apply_tool_policy(agent, user_message="Check calendar availability.", api_kwargs={"tools": list(agent.tools)})
     personal_names = [tool["function"]["name"] for tool in personal["tools"]]
