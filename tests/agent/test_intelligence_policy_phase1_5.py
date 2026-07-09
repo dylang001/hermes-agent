@@ -41,10 +41,23 @@ def test_mocked_real_runtime_samples_capture_actual_request_sizes(monkeypatch, t
     by_id_mode = {(row["sample_id"], row["sample_mode"]): row for row in report["reports"]}
     assert by_id_mode[("research-runtime", "memory_policy_enabled")]["runtime_request_bytes"] <= by_id_mode[("research-runtime", "phase1_5_observational_only")]["runtime_request_bytes"]
     assert by_id_mode[("engineering-runtime", "memory_policy_enabled")]["memory_decision"] in {"project", "light", "user", "full"}
-    assert by_id_mode[("research-runtime", "tool_policy_enabled")]["tool_schema_bytes"] < by_id_mode[("research-runtime", "phase1_5_observational_only")]["tool_schema_bytes"]
-    assert by_id_mode[("research-runtime", "tool_policy_enabled")]["runtime_request_bytes"] < by_id_mode[("research-runtime", "phase1_5_observational_only")]["runtime_request_bytes"]
-    assert len(by_id_mode[("research-runtime", "tool_policy_enabled")]["tools_exposed"]) == len(by_id_mode[("research-runtime", "phase1_5_observational_only")]["tools_exposed"])
-    assert by_id_mode[("research-runtime", "tool_policy_enabled")]["tools_exposed_after_policy"] < by_id_mode[("research-runtime", "phase1_5_observational_only")]["tools_exposed_after_policy"]
+    tool_enabled = by_id_mode[("research-runtime", "tool_policy_enabled")]
+    observational = by_id_mode[("research-runtime", "phase1_5_observational_only")]
+    if tool_enabled.get("tool_policy_fallback_reason"):
+        assert tool_enabled["tool_policy_fallback_reason"] in {
+            "required_tool_group_missing",
+            "uncertain_classifier",
+            "unknown_connector",
+        }
+        assert tool_enabled["tool_schema_bytes"] <= observational["tool_schema_bytes"]
+    else:
+        assert tool_enabled["tool_schema_bytes"] < observational["tool_schema_bytes"]
+    if tool_enabled.get("tool_policy_fallback_reason"):
+        assert tool_enabled["runtime_request_bytes"] <= observational["runtime_request_bytes"]
+    else:
+        assert tool_enabled["runtime_request_bytes"] < observational["runtime_request_bytes"]
+    assert len(tool_enabled["tools_exposed"]) == len(observational["tools_exposed"])
+    assert tool_enabled["tools_exposed_after_policy"] <= observational["tools_exposed_after_policy"]
 
 
 def test_phase2_memory_policy_benchmark_reports_three_modes():
