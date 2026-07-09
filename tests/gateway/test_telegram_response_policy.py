@@ -225,6 +225,26 @@ No files or memory were changed during this read-only check.
     assert "Remaining issue:" in result
 
 
+def test_telegram_full_report_uses_canonical_clickup_when_resolved(monkeypatch):
+    monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
+    text = (
+        "Full report:\n"
+        "Hermes active\n"
+        "Gateway active\n"
+        "Dashboard active\n"
+        "Telegram concise mode enabled\n"
+        "Memory/tool/evidence/failure policies enabled\n"
+        "MCP children Exa + Obsidian only\n"
+        "Canonical context installed\n"
+        "ClickUp IDs canonical\n"
+        "No files or memory were changed during this check."
+    )
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
+    assert "ClickUp IDs: canonical" in result
+    assert "Remaining issue:" not in result
+    assert "not canonical" not in result
+
+
 def test_telegram_source_conflict_default_is_human_and_brief(monkeypatch):
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     text = "Found conflicting ClickUp list IDs across memory and live config. Used live config. No changes made."
