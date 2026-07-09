@@ -18,7 +18,6 @@ _DETAIL_REQUEST_RE = re.compile(
     r"\b(full report|full status report|details requested|detailed report|expanded output|full details|show me more|expand)\b",
     re.I,
 )
-_DISCREPANCY_RE = re.compile(r"\b(conflict|conflicting|discrepanc|stale memory|source[- ]of[- ]truth|clickup list id)\b", re.I)
 _LOG_HEAVY_RE = re.compile(r"\b(traceback|stack trace|raw log|stderr|stdout|exception|error:|warn(?:ing)?|info\s+heartbeat)\b", re.I)
 _APPROVAL_RE = re.compile(
     r"(?im)^\s*(?:need approval|approval required|requires approval|pending approval)\b|"
@@ -27,16 +26,13 @@ _APPROVAL_RE = re.compile(
 _BLOCKED_RE = re.compile(r"(?im)^\s*(?:blocked|cannot proceed|need input)\b")
 _REPORT_BOILERPLATE_RE = re.compile(
     r"^\s*(?:#+\s*)?(?:hermes\s*[—-]\s*)?(?:full\s+)?(?:status\s+)?report(?:\s+generated)?\s*$|"
+    r"^\s*(?:#+\s*)?(?:hermes\s*[—-]\s*)?short\s+status\b.*$|"
     r"^\s*(?:generated|operator|reviewer)\s*:.*$",
     re.I | re.M,
 )
-_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
-_TABLE_DIVIDER_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$", re.M)
+_TABLE_DIVIDER_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$", re.M)
 _HERMES_STATUS_RE = re.compile(r"\b(hermes|gateway|dashboard|telegram concise|observability|mcp|canonical context|clickup)\b", re.I)
-_GENERIC_HERMES_STATUS_RE = re.compile(
-    r"^\s*(?:hermes\s+)?status\s+(?:checked|done)\.?\s*(?:no (?:files|memory|changes).*)?$",
-    re.I | re.S,
-)
 _INTERNAL_TRACE_RE = re.compile(
     r"(?im)"
     r"(?:^|\b)(?:"
@@ -69,9 +65,8 @@ def apply_telegram_response_policy(platform: Any, text: str, *, status: bool = F
     if not body:
         return body
 
-    # Explicit detail/full-report outputs should expand into a readable mobile
-    # report instead of passing through markdown tables or being misclassified
-    # by incidental "approval"/"blocked" words in audit content.
+    # Explicit detail/full-report outputs should preserve the agent's actual
+    # expanded answer while removing report chrome that is awkward on Telegram.
     if _DETAIL_REQUEST_RE.search(body[:500]):
         return _expanded_report(body)
 
@@ -93,44 +88,36 @@ def apply_telegram_stream_policy(platform: Any, text: str, *, status: bool = Tru
 
 def _compact_status(text: str) -> str:
     if _COMMAND_TRACE_RE.search(text):
-        return "Working - I am running the required checks and will summarize the result."
+        return "Working on it. I’ll keep the update short."
     if _INTERNAL_TRACE_RE.search(text):
-        return "Working - I am checking the relevant context and will keep Telegram concise."
-    if _DISCREPANCY_RE.search(text):
-        return "I found a stale memory/source conflict and used live config as the source of truth. No changes made."
+        return "Working on it. I’ll keep the update short."
     if _APPROVAL_RE.search(text):
         return "Need approval - " + _first_sentence(text, limit=180)
     if _LOG_HEAVY_RE.search(text) and _is_long_or_loggy(text):
-        return "Working - I found log-heavy output and am summarizing the useful evidence."
+        return "Working on it. I found noisy output and will summarize the useful part."
     if _is_long_or_loggy(text):
-        return "Working - I am summarizing the relevant result instead of sending raw details."
-    if _GENERIC_HERMES_STATUS_RE.search(text):
-        return _generic_hermes_status_summary(text)
+        return _summary_from_lines(text, prefix="Working on it.")
     if _looks_like_structured_status(text):
-        return _human_status_summary(text)
+        return _mobile_friendly_report(text, max_lines=4)
     return _first_sentence(text, limit=260)
 
 
 def _compact_final(text: str) -> str:
     if _COMMAND_TRACE_RE.search(text):
-        return "Done - I summarized the command/tool work. Ask for details for the full report."
+        return "Done. I summarized the work. Ask for details if you want the full trace."
     if _INTERNAL_TRACE_RE.search(text):
-        return "Done - I summarized the internal work. Ask for details for the full report."
+        return "Done. I kept the internal work out of Telegram. Ask for details if you want more."
     if _APPROVAL_RE.search(text):
         return "Need approval - " + _first_sentence(text, limit=220)
     if _BLOCKED_RE.search(text):
         if not _looks_like_structured_status(text):
             return "Blocked - " + _first_sentence(text, limit=220)
-    if _DISCREPANCY_RE.search(text):
-        return "I found a stale memory/source conflict and used live config as the source of truth. No changes made."
     if _LOG_HEAVY_RE.search(text) and _is_long_or_loggy(text):
-        return "Found issue - I summarized the log evidence instead of sending raw logs. Ask for details for the full report."
-    if _GENERIC_HERMES_STATUS_RE.search(text):
-        return _generic_hermes_status_summary(text)
+        return _summary_from_lines(text, prefix="Found issue.")
     if _looks_like_structured_status(text):
-        return _human_status_summary(text)
+        return _mobile_friendly_report(text, max_lines=6)
     if _is_long_or_loggy(text):
-        return _summary_from_lines(text)
+        return _summary_from_lines(text, prefix="Summary:")
     return _first_sentence(text, limit=600)
 
 
@@ -143,19 +130,27 @@ def _is_long_or_loggy(text: str) -> bool:
 
 def _first_sentence(text: str, *, limit: int) -> str:
     clean = " ".join(line.strip() for line in text.splitlines() if line.strip())
-    match = re.search(r"(.+?[.!?])(?:\s|$)", clean)
-    sentence = match.group(1) if match else clean
-    if len(sentence) <= limit:
-        return sentence
-    return sentence[: max(0, limit - 1)].rstrip() + "."
+    if len(clean) <= limit:
+        return clean
+    pieces = re.findall(r".+?[.!?](?:\s|$)", clean)
+    if pieces:
+        out = ""
+        for piece in pieces:
+            candidate = (out + piece).strip()
+            if len(candidate) > limit:
+                break
+            out = candidate + " "
+        if out.strip():
+            return out.strip()
+    return clean[: max(0, limit - 1)].rstrip() + "."
 
 
-def _summary_from_lines(text: str) -> str:
+def _summary_from_lines(text: str, *, prefix: str = "Summary:") -> str:
     lines = [line.strip(" -\t") for line in text.splitlines() if line.strip()]
     if not lines:
         return ""
-    head = _first_sentence(lines[0], limit=220)
-    return f"Done - {head} Ask for details for the full report."
+    useful = [_first_sentence(line, limit=220) for line in lines[:3]]
+    return "\n".join([prefix, *useful, "Ask for details if you want the full output."])
 
 
 def _looks_like_structured_status(text: str) -> bool:
@@ -164,75 +159,22 @@ def _looks_like_structured_status(text: str) -> bool:
     return bool(_HERMES_STATUS_RE.search(text) and len(text) > 240 and text.count("\n") >= 2)
 
 
-def _human_status_summary(text: str) -> str:
+def _mobile_friendly_report(text: str, *, max_lines: int) -> str:
     clean = _strip_report_chrome(text)
-    lowered = clean.lower()
-    lines: list[str] = []
-    if "gateway" in lowered and "active" in lowered:
-        lines.append("Hermes is online. Gateway is active.")
-    elif "hermes" in lowered:
-        lines.append("Hermes status checked.")
-    if "dashboard" in lowered and "active" in lowered:
-        lines.append("Dashboard is active.")
-    if "telegram concise" in lowered and ("enabled" in lowered or "on" in lowered):
-        lines.append("Telegram concise mode is on.")
-    if "clickup" in lowered and ("unresolved" in lowered or "not canonical" in lowered or "missing" in lowered):
-        lines.append("Only thing still unresolved is the canonical ClickUp list ID.")
+    lines = [line.strip() for line in clean.splitlines() if line.strip()]
     if not lines:
-        lines.append(_first_sentence(clean, limit=220))
-    return "\n".join(lines[:5])
-
-
-def _generic_hermes_status_summary(text: str) -> str:
-    lines = [
-        "Hermes is online. Gateway and dashboard are active.",
-        "Telegram concise mode is on.",
-        "ClickUp IDs are now canonical.",
-    ]
-    if re.search(r"\b(no files|nothing was changed|no changes made|no memory)\b", text, re.I):
-        lines.append("No changes made.")
-    return "\n".join(lines[:4])
+        return _first_sentence(clean, limit=260)
+    return "\n".join(_dedupe_lines(lines[:max_lines]))
 
 
 def _expanded_report(text: str) -> str:
     clean = _strip_report_chrome(text)
-    lowered = clean.lower()
-    lines = ["Full report:"]
-
-    if "hermes" in lowered:
-        lines.append("Hermes is running normally." if "active" in lowered or "online" in lowered else "Hermes status was checked.")
-    if "gateway" in lowered:
-        lines.append("Gateway: active" if "gateway" in lowered and "active" in lowered else "Gateway: checked")
-    if "dashboard" in lowered:
-        lines.append("Dashboard: active" if "dashboard" in lowered and "active" in lowered else "Dashboard: checked")
-    if "telegram concise" in lowered:
-        lines.append("Telegram concise mode: enabled" if "enabled" in lowered or "on" in lowered else "Telegram concise mode: checked")
-    if "observability" in lowered:
-        lines.append("Observability: enabled" if "enabled" in lowered else "Observability: checked")
-    if any(word in lowered for word in ("memory", "tool", "evidence", "failure")) and "enabled" in lowered:
-        lines.append("Memory/tool/evidence/failure policies: enabled")
-    if "exa" in lowered or "obsidian" in lowered:
-        lines.append("MCP children: Exa + Obsidian only")
-    if "canonical context" in lowered:
-        lines.append("Canonical context: installed" if "installed" in lowered else "Canonical context: checked")
-
-    if "clickup" in lowered and re.search(r"\b(canonical|resolved|verified)\b", lowered) and not re.search(r"\b(not canonical|unresolved|missing)\b", lowered):
-        lines.append("ClickUp IDs: canonical")
-    elif "clickup" in lowered:
-        lines.extend(
-            [
-                "",
-                "Remaining issue:",
-                "ClickUp list/workspace IDs are still not canonical. I found a workspace/source reference, but not a verified list ID yet.",
-            ]
-        )
-    if re.search(r"\b(no files|nothing was changed|no changes made|read-only)\b", lowered):
-        lines.append("No files or memory were changed during this check.")
-
-    if len(lines) == 1:
-        useful = [line for line in clean.splitlines() if line.strip()]
-        lines.extend(useful[:8])
-    return "\n".join(_dedupe_lines(lines))
+    useful = [line.strip() for line in clean.splitlines() if line.strip()]
+    if not useful:
+        return ""
+    if not useful[0].lower().startswith("full report"):
+        useful.insert(0, "Full report:")
+    return "\n".join(_dedupe_lines(useful[:24]))
 
 
 def _strip_report_chrome(text: str) -> str:
@@ -242,6 +184,8 @@ def _strip_report_chrome(text: str) -> str:
         if not line:
             lines.append("")
             continue
+        if re.match(r"(?i)^(?:need approval|blocked)\s*[-–—]\s*#?\s*hermes\s*[—-]", line):
+            line = re.sub(r"(?i)^(?:need approval|blocked)\s*[-–—]\s*", "", line).strip()
         if _REPORT_BOILERPLATE_RE.search(line):
             continue
         if _TABLE_DIVIDER_RE.search(line):
