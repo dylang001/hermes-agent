@@ -105,20 +105,14 @@ def _compact_status(text: str) -> str:
 def _compact_final(text: str) -> str:
     if _COMMAND_TRACE_RE.search(text):
         return "Done. I summarized the work. Ask for details if you want the full trace."
-    if _INTERNAL_TRACE_RE.search(text):
-        return "Done. I kept the internal work out of Telegram. Ask for details if you want more."
     if _APPROVAL_RE.search(text):
         return "Need approval - " + _first_sentence(text, limit=220)
     if _BLOCKED_RE.search(text):
         if not _looks_like_structured_status(text):
             return "Blocked - " + _first_sentence(text, limit=220)
-    if _LOG_HEAVY_RE.search(text) and _is_long_or_loggy(text):
-        return _summary_from_lines(text, prefix="Found issue.")
     if _looks_like_structured_status(text):
         return _mobile_friendly_report(text, max_lines=6)
-    if _is_long_or_loggy(text):
-        return _summary_from_lines(text, prefix="Summary:")
-    return _first_sentence(text, limit=600)
+    return text
 
 
 def _is_long_or_loggy(text: str) -> bool:

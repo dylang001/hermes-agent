@@ -164,6 +164,9 @@ def classify_request(message: Any) -> RequestClass:
     if not text.strip():
         return "direct_answer"
 
+    if re.search(r"\b(weather|forecast|temperature|rain|raining|snow|wind|humidity)\b", text):
+        return "scoped_lookup"
+
     if any(marker in text for marker in ("deep research", "comprehensive", "full audit", "end to end", "before/after", "benchmark", "20 representative", "architecture audit")):
         return "deep_work"
 
@@ -1403,7 +1406,7 @@ def _execution_approved(message: Any) -> bool:
 
 
 def _research_tool_request(text: str) -> bool:
-    return bool(re.search(r"\b(web|current|latest|competitor|vendor|pricing|market|policy|regulation|article|pdf|sources?)\b", text))
+    return bool(re.search(r"\b(web|current|latest|competitor|vendor|pricing|market|policy|regulation|article|pdf|sources?|weather|forecast|temperature|rain|raining|snow|wind|humidity)\b", text))
 
 
 def _personal_tool_request(text: str) -> bool:

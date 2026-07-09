@@ -24,14 +24,11 @@ def test_telegram_direct_answer_stays_short_when_enabled(monkeypatch):
     assert _sanitize_gateway_final_response(Platform.TELEGRAM, text) == text
 
 
-def test_telegram_long_task_compacts_final_response(monkeypatch):
+def test_telegram_long_final_response_preserves_agent_output(monkeypatch):
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     text = "Validation completed.\n" + "\n".join(f"detail line {i}" for i in range(40))
     result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
-    assert result.startswith("Summary:")
-    assert "Validation completed." in result
-    assert "Ask for details" in result
-    assert "detail line 39" not in result
+    assert result == text
 
 
 def test_telegram_approval_required_is_clear_and_short(monkeypatch):
@@ -42,12 +39,11 @@ def test_telegram_approval_required_is_clear_and_short(monkeypatch):
     assert len(result) < 260
 
 
-def test_telegram_log_heavy_task_summarizes_instead_of_dumping_logs(monkeypatch):
+def test_telegram_log_heavy_final_preserves_agent_output(monkeypatch):
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     text = "Traceback\n" + "\n".join(f"ERROR noisy raw log {i}" for i in range(30))
     result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
-    assert result.startswith("Found issue.")
-    assert "ERROR noisy raw log 29" not in result
+    assert result == text
 
 
 def test_telegram_discrepancy_status_is_brief(monkeypatch):
@@ -194,6 +190,18 @@ def test_telegram_unrelated_answer_is_not_replaced_by_status_template(monkeypatc
     assert result == text
     assert "Gateway and dashboard" not in result
     assert "ClickUp IDs" not in result
+
+
+def test_telegram_weather_answer_is_not_rewritten_to_fake_summary(monkeypatch):
+    monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
+    text = (
+        "I need your location to check tomorrow's weather. "
+        "Send a city or share your Telegram location and I’ll look it up."
+    )
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
+    assert result == text
+    assert not result.startswith("Summary:")
+    assert "Ask for details" not in result
 
 
 def test_telegram_full_report_expands_without_wrong_approval(monkeypatch):
