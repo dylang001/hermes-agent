@@ -547,6 +547,15 @@ def build_turn_context(
         try:
             _query = original_user_message if isinstance(original_user_message, str) else ""
             ext_prefetch_cache = agent._memory_manager.prefetch_all(_query) or ""
+            try:
+                from agent.intelligence_policy import apply_memory_policy
+                ext_prefetch_cache = apply_memory_policy(
+                    agent,
+                    user_message=original_user_message,
+                    prefetched_memory=ext_prefetch_cache,
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 

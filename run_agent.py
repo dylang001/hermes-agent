@@ -2462,6 +2462,18 @@ class AIAgent:
         retryable: Optional[bool] = None,
         reason: Optional[str] = None,
     ) -> None:
+        if getattr(self, "_policy_run_observer", None) is not None:
+            try:
+                from agent.intelligence_policy import classify_error, record_retry
+                record_retry(
+                    self,
+                    classify_error(
+                        status_code=status_code,
+                        message=" ".join(str(part) for part in (error_type, error_message, reason) if part),
+                    ),
+                )
+            except Exception:
+                pass
         # Lazy module import (not from-import) so tests that
         # ``monkeypatch.setattr("hermes_cli.plugins.has_hook", ...)`` still
         # take effect on this call site. After first call the import is a

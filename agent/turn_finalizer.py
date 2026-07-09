@@ -451,6 +451,19 @@ def finalize_turn(
         "cost_source": agent.session_cost_source,
         "session_id": agent.session_id,
     }
+    if getattr(agent, "_policy_run_observer", None) is not None:
+        try:
+            from agent.intelligence_policy import finalize_run
+            _policy_report = finalize_run(
+                agent,
+                completed=completed,
+                failed=failed,
+                interrupted=interrupted,
+            )
+            if _policy_report is not None:
+                result["policy_report"] = _policy_report
+        except Exception:
+            pass
     if agent._tool_guardrail_halt_decision is not None:
         result["guardrail"] = agent._tool_guardrail_halt_decision.to_metadata()
     # Surface any post-loop cleanup failures so the caller can distinguish a

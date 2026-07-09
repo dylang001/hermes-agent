@@ -890,6 +890,13 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 result_preview = _err_text[:200] if len(_err_text) > 200 else _err_text
                 logger.warning("Tool %s returned error (%.2fs): %s", function_name, tool_duration, result_preview)
 
+            if getattr(agent, "_policy_run_observer", None) is not None:
+                try:
+                    from agent.intelligence_policy import record_tool as _record_policy_tool
+                    _record_policy_tool(agent, function_name, failed=is_error)
+                except Exception:
+                    pass
+
             # Track file-mutation outcome for the turn-end verifier.
             # `blocked` calls never actually ran — don't let a guardrail
             # block count as either a failure or a success.
@@ -954,6 +961,17 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 _append_subdir_hint_to_multimodal(function_result, subdir_hints)
             else:
                 function_result += subdir_hints
+
+        if getattr(agent, "_intelligence_evidence_compaction_enabled", False):
+            try:
+                from agent.intelligence_policy import compact_tool_result
+                function_result = compact_tool_result(
+                    agent,
+                    tool_name=name,
+                    result=function_result,
+                )
+            except Exception:
+                pass
 
         # Unwrap _multimodal dicts to an OpenAI-style content list so any
         # vision-capable provider receives [{type:text},{type:image_url}]
@@ -1568,6 +1586,13 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
         else:
             logger.info("tool %s completed (%.2fs, %d chars)", function_name, tool_duration, _result_len)
 
+        if getattr(agent, "_policy_run_observer", None) is not None:
+            try:
+                from agent.intelligence_policy import record_tool as _record_policy_tool
+                _record_policy_tool(agent, function_name, failed=_is_error_result)
+            except Exception:
+                pass
+
         # Track file-mutation outcome for the turn-end verifier.  See
         # the concurrent path for the rationale; both paths must feed
         # the same state so the footer reflects every tool call in the
@@ -1620,6 +1645,17 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 _append_subdir_hint_to_multimodal(function_result, subdir_hints)
             else:
                 function_result += subdir_hints
+
+        if getattr(agent, "_intelligence_evidence_compaction_enabled", False):
+            try:
+                from agent.intelligence_policy import compact_tool_result
+                function_result = compact_tool_result(
+                    agent,
+                    tool_name=function_name,
+                    result=function_result,
+                )
+            except Exception:
+                pass
 
         # Unwrap _multimodal dicts to an OpenAI-style content list
         # (see parallel path for rationale). String results pass through.

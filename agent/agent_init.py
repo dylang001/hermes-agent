@@ -638,6 +638,19 @@ def init_agent(
     agent._last_activity_desc: str = "initializing"
     agent._current_tool: str | None = None
     agent._api_call_count: int = 0
+    agent._intelligence_policy_enabled = False
+    agent._policy_run_observer = None
+    agent._intelligence_memory_policy_enabled = False
+    agent._intelligence_memory_policy_config = {}
+    agent._intelligence_memory_policy_last_decision = None
+    agent._intelligence_tool_policy_enabled = False
+    agent._intelligence_tool_policy_config = {}
+    agent._intelligence_tool_policy_last_decision = None
+    agent._intelligence_evidence_compaction_enabled = False
+    agent._intelligence_evidence_compaction_config = {}
+    agent._intelligence_evidence_compaction_stats = None
+    agent._intelligence_failure_policy_enabled = False
+    agent._intelligence_failure_policy_last_decision = None
     # Opt-out flag for the between-turns MCP tool refresh (build_turn_context).
     # Set on internal forks (e.g. background_review) that must keep ``tools[]``
     # byte-identical to a parent for provider cache parity.
@@ -1962,6 +1975,35 @@ def init_agent(
     agent.session_estimated_cost_usd = 0.0
     agent.session_cost_status = "unknown"
     agent.session_cost_source = "none"
+    try:
+        from agent.intelligence_policy import (
+            intelligence_memory_policy_enabled,
+            intelligence_evidence_compaction_enabled,
+            intelligence_failure_policy_enabled,
+            intelligence_policy_enabled,
+            intelligence_tool_policy_enabled,
+            evidence_compaction_config,
+            memory_policy_config,
+            tool_policy_config,
+        )
+        agent._intelligence_policy_enabled = intelligence_policy_enabled(_agent_cfg)
+        agent._intelligence_memory_policy_enabled = intelligence_memory_policy_enabled(_agent_cfg)
+        agent._intelligence_memory_policy_config = memory_policy_config(_agent_cfg)
+        agent._intelligence_tool_policy_enabled = intelligence_tool_policy_enabled(_agent_cfg)
+        agent._intelligence_tool_policy_config = tool_policy_config(_agent_cfg)
+        agent._intelligence_evidence_compaction_enabled = intelligence_evidence_compaction_enabled(_agent_cfg)
+        agent._intelligence_evidence_compaction_config = evidence_compaction_config(_agent_cfg)
+        agent._intelligence_failure_policy_enabled = intelligence_failure_policy_enabled(_agent_cfg)
+    except Exception:
+        agent._intelligence_policy_enabled = False
+        agent._intelligence_memory_policy_enabled = False
+        agent._intelligence_memory_policy_config = {}
+        agent._intelligence_tool_policy_enabled = False
+        agent._intelligence_tool_policy_config = {}
+        agent._intelligence_evidence_compaction_enabled = False
+        agent._intelligence_evidence_compaction_config = {}
+        agent._intelligence_failure_policy_enabled = False
+        agent._intelligence_failure_policy_last_decision = None
     
     # ── Ollama num_ctx injection ──
     # Ollama defaults to 2048 context regardless of the model's capabilities.
