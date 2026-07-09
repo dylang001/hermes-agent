@@ -43,7 +43,8 @@ When sources conflict, resolve against the highest-confidence source quietly and
 
 ## Intelligence Flags
 
-The completed intelligence work remains feature-flagged:
+The completed intelligence work remains feature-flagged and is controlled by
+environment variables:
 
 - `HERMES_INTELLIGENCE_POLICY`
 - `HERMES_INTELLIGENCE_MEMORY_POLICY`
@@ -52,11 +53,25 @@ The completed intelligence work remains feature-flagged:
 - `HERMES_INTELLIGENCE_FAILURE_POLICY`
 - `HERMES_TELEGRAM_CONCISE_RESPONSES`
 
-Production rollout policy:
+Current VPS rollout state:
 
-- observability may be staged with `HERMES_INTELLIGENCE_POLICY=1`.
-- memory, tool, evidence, and failure policies stay off until separately approved.
-- Telegram concise mode requires explicit approval and a gateway restart.
+- `hermes-gateway.service` has all six flags enabled as of the approved
+  July 9, 2026 rollout.
+- Keep flags explicit in the service environment; do not make them implicit
+  defaults without separate approval.
+- Disable individual flags first if a regression appears, then restart only the
+  required service.
+
+## ClickUp / Drive / Obsidian / Workspace IDs
+
+Verified from read-only ClickUp workspace hierarchy on July 9, 2026:
+
+- ClickUp workspace: `Workspace` (`90152507264`)
+- Orchidea space: `Orchidea` (`901511216857`)
+- Orchidea prospecting list: `Pipeline` (`901524109891`)
+- Orchidea ops list: `Ops` (`901524109892`)
+- Prospecting list source: ClickUp list metadata says `Pipeline` is for
+  sales/outbound work with statuses from `prospecting` through `won/lost`.
 
 ## Historical Facts To Avoid
 
@@ -68,6 +83,7 @@ Production rollout policy:
 
 ## Missing Canonical Facts
 
-- Canonical ClickUp workspace/list IDs are not established yet.
-- Do not invent ClickUp IDs or act on IDs from memory alone.
-- Verify ClickUp IDs from a safe live/configured source before canonicalizing them.
+- No ClickUp folder ID is required for the current Orchidea `Pipeline` list; it
+  is directly under the `Orchidea` space.
+- Do not act on any different ClickUp IDs from memory alone; verify against a
+  live/configured source first.
