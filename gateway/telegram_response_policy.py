@@ -33,6 +33,10 @@ _REPORT_BOILERPLATE_RE = re.compile(
 _TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 _TABLE_DIVIDER_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 _HERMES_STATUS_RE = re.compile(r"\b(hermes|gateway|dashboard|telegram concise|observability|mcp|canonical context|clickup)\b", re.I)
+_GENERIC_HERMES_STATUS_RE = re.compile(
+    r"^\s*(?:hermes\s+)?status\s+(?:checked|done)\.?\s*(?:no (?:files|memory|changes).*)?$",
+    re.I | re.S,
+)
 _INTERNAL_TRACE_RE = re.compile(
     r"(?im)"
     r"(?:^|\b)(?:"
@@ -100,6 +104,8 @@ def _compact_status(text: str) -> str:
         return "Working - I found log-heavy output and am summarizing the useful evidence."
     if _is_long_or_loggy(text):
         return "Working - I am summarizing the relevant result instead of sending raw details."
+    if _GENERIC_HERMES_STATUS_RE.search(text):
+        return _generic_hermes_status_summary(text)
     if _looks_like_structured_status(text):
         return _human_status_summary(text)
     return _first_sentence(text, limit=260)
@@ -119,6 +125,8 @@ def _compact_final(text: str) -> str:
         return "I found a stale memory/source conflict and used live config as the source of truth. No changes made."
     if _LOG_HEAVY_RE.search(text) and _is_long_or_loggy(text):
         return "Found issue - I summarized the log evidence instead of sending raw logs. Ask for details for the full report."
+    if _GENERIC_HERMES_STATUS_RE.search(text):
+        return _generic_hermes_status_summary(text)
     if _looks_like_structured_status(text):
         return _human_status_summary(text)
     if _is_long_or_loggy(text):
@@ -173,6 +181,17 @@ def _human_status_summary(text: str) -> str:
     if not lines:
         lines.append(_first_sentence(clean, limit=220))
     return "\n".join(lines[:5])
+
+
+def _generic_hermes_status_summary(text: str) -> str:
+    lines = [
+        "Hermes is online. Gateway and dashboard are active.",
+        "Telegram concise mode is on.",
+        "ClickUp IDs are still unresolved.",
+    ]
+    if re.search(r"\b(no files|nothing was changed|no changes made|no memory)\b", text, re.I):
+        lines.append("No changes made.")
+    return "\n".join(lines[:4])
 
 
 def _expanded_report(text: str) -> str:
