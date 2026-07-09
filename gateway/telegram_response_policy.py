@@ -216,7 +216,9 @@ def _expanded_report(text: str) -> str:
     if "canonical context" in lowered:
         lines.append("Canonical context: installed" if "installed" in lowered else "Canonical context: checked")
 
-    if "clickup" in lowered:
+    if "clickup" in lowered and re.search(r"\b(canonical|resolved|verified)\b", lowered) and not re.search(r"\b(not canonical|unresolved|missing)\b", lowered):
+        lines.append("ClickUp IDs: canonical")
+    elif "clickup" in lowered:
         lines.extend(
             [
                 "",
