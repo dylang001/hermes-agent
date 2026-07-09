@@ -5,9 +5,12 @@ the new list-based ``fallback_providers`` config format and chain
 advancement through multiple providers.
 """
 
+import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from run_agent import AIAgent, _pool_may_recover_from_rate_limit
+from agent.error_classifier import FailoverReason, classify_api_error
 
 
 def _make_agent(fallback_model=None):
@@ -210,6 +213,154 @@ class TestFallbackChainAdvancement:
         ):
             assert agent._try_activate_fallback() is True
             assert agent.api_mode == "anthropic_messages"
+
+    def test_same_provider_explicit_key_fallback_preserves_opencode_route(self, caplog):
+        """OpenCode Go fallback with the same provider/model but a different
+        key_env is credential rotation, not a duplicate backend loop."""
+        fbs = [
+            {
+                "provider": "opencode-go",
+                "model": "minimax-m3",
+                "key_env": "OPENCODE_GO_API_KEY_FALLBACK",
+            }
+        ]
+        agent = _make_agent(fallback_model=fbs)
+        agent.provider = "opencode-go"
+        agent.model = "minimax-m3"
+        agent.base_url = "https://opencode.ai/zen/go"
+        agent.api_mode = "anthropic_messages"
+
+        fallback_credential = "FALLBACK_TEST_CREDENTIAL_VALUE"
+        with (
+            caplog.at_level(logging.INFO),
+            patch.dict("os.environ", {"OPENCODE_GO_API_KEY_FALLBACK": fallback_credential}, clear=False),
+            patch(
+                "agent.auxiliary_client.resolve_provider_client",
+                return_value=(
+                    _mock_client(
+                        base_url="https://opencode.ai/zen/go/v1",
+                        api_key=fallback_credential,
+                    ),
+                    "minimax-m3",
+                ),
+            ) as mock_rpc,
+            patch("hermes_cli.model_normalize.normalize_model_for_provider", side_effect=lambda m, p: m),
+            patch("agent.anthropic_adapter.build_anthropic_client", return_value=MagicMock()) as mock_build,
+            patch("agent.anthropic_adapter.resolve_anthropic_token", return_value=""),
+            patch("agent.anthropic_adapter._is_oauth_token", return_value=False),
+        ):
+            assert agent._try_activate_fallback(reason=FailoverReason.billing) is True
+
+        assert agent.provider == "opencode-go"
+        assert agent.model == "minimax-m3"
+        assert agent.api_mode == "anthropic_messages"
+        assert agent._fallback_activated is True
+        assert mock_rpc.call_args.kwargs["explicit_api_key"] == fallback_credential
+        mock_build.assert_called_once()
+        assert "key_slot=fallback" in caplog.text
+        assert fallback_credential not in caplog.text
+
+
+class TestOpenCodeGoQuotaClassification:
+    class _ApiError(Exception):
+        def __init__(self, *, status_code=429, body=None, message=""):
+            super().__init__(message or str(body or ""))
+            self.status_code = status_code
+            self.body = body or {}
+
+    def test_primary_success_has_no_failover_signal(self):
+        agent = _make_agent(
+            fallback_model=[{
+                "provider": "opencode-go",
+                "model": "minimax-m3",
+                "key_env": "OPENCODE_GO_API_KEY_FALLBACK",
+            }]
+        )
+        assert agent.provider != "opencode-go" or agent._fallback_index == 0
+        assert agent._fallback_activated is False
+
+    def test_opencode_weekly_usage_429_is_quota_exhaustion(self):
+        err = self._ApiError(
+            body={
+                "error": {
+                    "type": "GoUsageLimitError",
+                    "message": (
+                        "Weekly usage limit reached. Resets in 1 day. "
+                        "To continue using this model now, enable usage from your available balance."
+                    ),
+                }
+            }
+        )
+
+        classified = classify_api_error(err, provider="opencode-go", model="minimax-m3")
+
+        assert classified.reason == FailoverReason.billing
+        assert classified.retryable is False
+        assert classified.should_rotate_credential is True
+        assert classified.should_fallback is True
+
+    def test_both_opencode_keys_exhausted_is_not_retry_backoff(self):
+        err = self._ApiError(
+            body={
+                "error": {
+                    "type": "GoUsageLimitError",
+                    "message": "Weekly usage limit reached. Resets in 1 day.",
+                }
+            }
+        )
+        classified = classify_api_error(err, provider="opencode-go", model="minimax-m3")
+        is_client_error = (
+            not classified.retryable
+            and not classified.should_compress
+            and classified.reason not in {
+                FailoverReason.rate_limit,
+                FailoverReason.overloaded,
+                FailoverReason.context_overflow,
+                FailoverReason.payload_too_large,
+                FailoverReason.long_context_tier,
+                FailoverReason.thinking_signature,
+            }
+        )
+
+        assert classified.reason == FailoverReason.billing
+        assert is_client_error is True
+
+    def test_non_quota_429_keeps_normal_rate_limit_behavior(self):
+        err = self._ApiError(
+            body={"error": {"type": "rate_limit", "message": "Too many requests; please retry after 10 seconds."}}
+        )
+
+        classified = classify_api_error(err, provider="opencode-go", model="minimax-m3")
+
+        assert classified.reason == FailoverReason.rate_limit
+        assert classified.retryable is True
+
+    def test_non_quota_transient_server_error_does_not_rotate_credentials(self):
+        err = self._ApiError(
+            status_code=500,
+            body={"error": {"message": "temporary upstream failure"}},
+        )
+
+        classified = classify_api_error(err, provider="opencode-go", model="minimax-m3")
+
+        assert classified.reason == FailoverReason.server_error
+        assert classified.should_rotate_credential is False
+
+    def test_no_api_key_values_in_classification_message(self):
+        credential_value = "PRIMARY_TEST_CREDENTIAL_VALUE"
+        err = self._ApiError(
+            body={
+                "error": {
+                    "type": "GoUsageLimitError",
+                    "message": "Weekly usage limit reached.",
+                }
+            },
+            message="Weekly usage limit reached.",
+        )
+
+        classified = classify_api_error(err, provider="opencode-go", model="minimax-m3")
+
+        assert credential_value not in classified.message
 
 
 # ── Pool-rotation vs fallback gating (#11314) ────────────────────────────
