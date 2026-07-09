@@ -238,6 +238,18 @@ class GatewayStreamConsumer:
             meta["notify"] = True
         return meta or None
 
+    def _shape_telegram_text(self, text: str, *, status: bool = False) -> str:
+        try:
+            from gateway.telegram_response_policy import apply_telegram_stream_policy
+
+            return apply_telegram_stream_policy(
+                getattr(self.adapter, "platform", None),
+                text,
+                status=status,
+            )
+        except Exception:
+            return text
+
     @property
     def already_sent(self) -> bool:
         """True if at least one message was sent or edited during the run."""
@@ -912,7 +924,10 @@ class GatewayStreamConsumer:
 
         Returns the message_id so callers can thread subsequent chunks.
         """
-        text = self._clean_for_display(text)
+        text = self._shape_telegram_text(
+            self._clean_for_display(text),
+            status=not final,
+        )
         if not text.strip():
             return reply_to_id
         try:
@@ -978,7 +993,10 @@ class GatewayStreamConsumer:
 
         Retries each chunk once on flood-control failures with a short delay.
         """
-        final_text = self._clean_for_display(text)
+        final_text = self._shape_telegram_text(
+            self._clean_for_display(text),
+            status=False,
+        )
         continuation = self._continuation_text(final_text)
         self._fallback_final_send = False
         if not continuation.strip():
@@ -1256,7 +1274,10 @@ class GatewayStreamConsumer:
 
     async def _send_commentary(self, text: str) -> bool:
         """Send a completed interim assistant commentary message."""
-        text = self._clean_for_display(text)
+        text = self._shape_telegram_text(
+            self._clean_for_display(text),
+            status=True,
+        )
         if not text.strip():
             return False
         try:
@@ -1503,7 +1524,10 @@ class GatewayStreamConsumer:
         # Strip MEDIA: directives so they don't appear as visible text.
         # Media files are delivered as native attachments after the stream
         # finishes (via _deliver_media_from_response in gateway/run.py).
-        text = self._clean_for_display(text)
+        text = self._shape_telegram_text(
+            self._clean_for_display(text),
+            status=not finalize,
+        )
         # A bare streaming cursor is not meaningful user-visible content and
         # can render as a stray tofu/white-box message on some clients.
         visible_without_cursor = text

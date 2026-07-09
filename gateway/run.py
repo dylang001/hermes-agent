@@ -489,6 +489,16 @@ async def _send_or_update_status_coro(adapter, chat_id, status_key, content, met
     Telegram) edit the previous bubble for the same status_key instead of
     appending a new one. Adapters without the method fall back to plain send.
     """
+    try:
+        from gateway.telegram_response_policy import apply_telegram_stream_policy
+
+        content = apply_telegram_stream_policy(
+            getattr(adapter, "platform", None),
+            str(content),
+            status=True,
+        )
+    except Exception:
+        pass
     sender = getattr(adapter, "send_or_update_status", None)
     if callable(sender):
         return await sender(chat_id, status_key, content, metadata=metadata)
@@ -17543,6 +17553,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     _cleanup_msg_ids.append(str(result.message_id))
 
             async def _send_progress_text(text: str):
+                try:
+                    from gateway.telegram_response_policy import apply_telegram_stream_policy
+
+                    text = apply_telegram_stream_policy(source.platform, str(text), status=True)
+                except Exception:
+                    pass
                 result = await adapter.send(
                     chat_id=source.chat_id,
                     content=text,

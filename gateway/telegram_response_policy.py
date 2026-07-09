@@ -19,6 +19,18 @@ _DISCREPANCY_RE = re.compile(r"\b(conflict|conflicting|discrepanc|stale memory|s
 _LOG_HEAVY_RE = re.compile(r"\b(traceback|stack trace|raw log|stderr|stdout|exception|error:|warn(?:ing)?|info\s+heartbeat)\b", re.I)
 _APPROVAL_RE = re.compile(r"\b(approval required|need approval|requires approval|pending approval)\b", re.I)
 _BLOCKED_RE = re.compile(r"\b(blocked|cannot proceed|need input)\b", re.I)
+_INTERNAL_TRACE_RE = re.compile(
+    r"(?im)"
+    r"(?:^|\b)(?:"
+    r"thinking(?:\.\.\.)?|analysis:|plan:|tool call|tool result|command output|terminal output|"
+    r"ran command|viewed file|edited file|opened file|read file|"
+    r"i(?:'|’)ll\s+(?:inspect|check|run|read|open|edit|look|search|verify)|"
+    r"i\s+will\s+(?:inspect|check|run|read|open|edit|look|search|verify)"
+    r")\b",
+)
+_COMMAND_TRACE_RE = re.compile(
+    r"(?im)(?:^|\b)(?:ran command|command output|terminal output|tool call|viewed file|edited file|opened file|read file)\b"
+)
 
 
 def telegram_response_policy_enabled() -> bool:
@@ -49,7 +61,22 @@ def apply_telegram_response_policy(platform: Any, text: str, *, status: bool = F
     return _compact_final(body)
 
 
+def apply_telegram_stream_policy(platform: Any, text: str, *, status: bool = True) -> str:
+    """Shape interim Telegram stream/progress text before platform delivery.
+
+    Final-response shaping only catches the last message. Telegram also receives
+    commentary and progress bubbles from streaming/tool paths, so those paths
+    use this stricter wrapper to prevent internal planning or command traces
+    from becoming visible chat content.
+    """
+    return apply_telegram_response_policy(platform, text, status=status)
+
+
 def _compact_status(text: str) -> str:
+    if _COMMAND_TRACE_RE.search(text):
+        return "Working - I am running the required checks and will summarize the result."
+    if _INTERNAL_TRACE_RE.search(text):
+        return "Working - I am checking the relevant context and will keep Telegram concise."
     if _DISCREPANCY_RE.search(text):
         return "Found a stale memory/source conflict. I am verifying against live config before touching anything."
     if _APPROVAL_RE.search(text):
@@ -62,6 +89,10 @@ def _compact_status(text: str) -> str:
 
 
 def _compact_final(text: str) -> str:
+    if _COMMAND_TRACE_RE.search(text):
+        return "Done - I summarized the command/tool work. Ask for details for the full report."
+    if _INTERNAL_TRACE_RE.search(text):
+        return "Done - I summarized the internal work. Ask for details for the full report."
     if _APPROVAL_RE.search(text):
         return "Need approval - " + _first_sentence(text, limit=220)
     if _BLOCKED_RE.search(text):
