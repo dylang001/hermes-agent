@@ -434,7 +434,12 @@ def _sanitize_gateway_final_response(platform: Any, text: str) -> str:
     redacted = _redact_gateway_user_facing_secrets(str(text))
     if _looks_like_gateway_provider_error(redacted):
         return _gateway_provider_error_reply(redacted)
-    return redacted
+    try:
+        from gateway.telegram_response_policy import apply_telegram_response_policy
+
+        return apply_telegram_response_policy(platform, redacted)
+    except Exception:
+        return redacted
 
 
 def _prepare_gateway_status_message(platform: Any, event_type: str, message: str) -> Optional[str]:
@@ -454,7 +459,12 @@ def _prepare_gateway_status_message(platform: Any, event_type: str, message: str
         return None
     if _looks_like_gateway_provider_error(text):
         return _gateway_provider_error_reply(text)
-    return text
+    try:
+        from gateway.telegram_response_policy import apply_telegram_response_policy
+
+        return apply_telegram_response_policy(platform, text, status=True)
+    except Exception:
+        return text
 
 
 def render_notice_line(notice) -> str:
