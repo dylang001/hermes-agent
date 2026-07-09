@@ -602,6 +602,19 @@ def run_conversation(
     _plugin_user_context = _ctx.plugin_user_context
     _ext_prefetch_cache = _ctx.ext_prefetch_cache
 
+    try:
+        from agent.intelligence_policy import start_run_observer
+        agent._policy_run_observer = start_run_observer(
+            agent,
+            user_message=original_user_message,
+            system_prompt=active_system_prompt or "",
+            task_id=effective_task_id,
+            turn_id=turn_id,
+            ext_prefetch_cache=_ext_prefetch_cache,
+        )
+    except Exception:
+        agent._policy_run_observer = None
+
     # Main conversation loop counters (pure locals consumed by the loop below).
     api_call_count = 0
     final_response = None
@@ -1198,6 +1211,24 @@ def run_conversation(
                 except Exception:
                     _original_api_kwargs = dict(api_kwargs)
                     _llm_middleware_trace = []
+
+                if getattr(agent, "_intelligence_tool_policy_enabled", False):
+                    try:
+                        from agent.intelligence_policy import apply_tool_policy
+                        api_kwargs = apply_tool_policy(
+                            agent,
+                            user_message=original_user_message,
+                            api_kwargs=api_kwargs,
+                        )
+                    except Exception:
+                        pass
+
+                if getattr(agent, "_policy_run_observer", None) is not None:
+                    try:
+                        from agent.intelligence_policy import record_runtime_request
+                        record_runtime_request(agent, api_kwargs=api_kwargs, api_messages=api_messages)
+                    except Exception:
+                        pass
 
                 try:
                     from hermes_cli.plugins import (
@@ -3017,6 +3048,88 @@ def run_conversation(
                         "completed": False,
                         "interrupted": True,
                     }
+
+                if getattr(agent, "_intelligence_failure_policy_enabled", False):
+                    try:
+                        from agent.intelligence_policy import (
+                            classify_error as _intelligence_classify_error,
+                            decide_failure_policy as _decide_failure_policy,
+                            record_failure_policy_decision as _record_failure_policy_decision,
+                        )
+                    except Exception:
+                        _intelligence_classify_error = None
+                        _decide_failure_policy = None
+                        _record_failure_policy_decision = None
+
+                    if _intelligence_classify_error and _decide_failure_policy and _record_failure_policy_decision:
+                        _failure_error_class = _intelligence_classify_error(
+                            api_error,
+                            status_code=status_code,
+                            message=_error_summary,
+                        )
+                        try:
+                            _has_phase5_fallback = bool(agent._has_pending_fallback())
+                        except Exception:
+                            _has_phase5_fallback = bool(getattr(agent, "_fallback_index", 0) < len(getattr(agent, "_fallback_chain", []) or []))
+                        _failure_decision = _decide_failure_policy(
+                            _failure_error_class,
+                            retry_count=retry_count,
+                            max_retries=max_retries,
+                            has_pending_fallback=_has_phase5_fallback,
+                        )
+                        _observer = getattr(agent, "_policy_run_observer", None)
+                        if _observer is not None:
+                            try:
+                                _observer.record_retry(_failure_error_class)
+                            except Exception:
+                                pass
+
+                        if _failure_decision["action"] == "activate_fallback":
+                            _failure_decision["fallback_attempted"] = True
+                            agent._buffer_status("⚠️ Classified auth/quota failure — switching to configured fallback provider...")
+                            _fallback_ok = agent._try_activate_fallback(reason=classified.reason)
+                            _failure_decision["fallback_succeeded"] = bool(_fallback_ok)
+                            _record_failure_policy_decision(agent, _failure_decision)
+                            if _fallback_ok:
+                                active_system_prompt = _sync_failover_system_message(
+                                    agent, api_messages, active_system_prompt)
+                                retry_count = 0
+                                compression_attempts = 0
+                                _retry.primary_recovery_attempted = False
+                                continue
+
+                        elif _failure_decision["action"] in {"fail_closed", "approval_required"}:
+                            _record_failure_policy_decision(agent, _failure_decision)
+                            agent._flush_status_buffer()
+                            _state_label = (
+                                "approval required"
+                                if _failure_decision["action"] == "approval_required"
+                                else _failure_error_class.replace("_", " ")
+                            )
+                            agent._emit_status(f"❌ Classified {_state_label} failure — not retrying.")
+                            logger.error(
+                                "%sPhase 5 failure policy stopped retry loop: class=%s reason=%s provider=%s model=%s summary=%s",
+                                agent.log_prefix,
+                                _failure_error_class,
+                                _failure_decision.get("reason_code"),
+                                _provider,
+                                _model,
+                                _error_summary,
+                            )
+                            agent._persist_session(messages, conversation_history)
+                            return {
+                                "final_response": _error_summary,
+                                "messages": messages,
+                                "api_calls": api_call_count,
+                                "completed": False,
+                                "failed": _failure_decision["action"] != "approval_required",
+                                "approval_required": _failure_decision["action"] == "approval_required",
+                                "error": _error_summary,
+                                "failure_reason": _failure_error_class,
+                            }
+
+                        else:
+                            _record_failure_policy_decision(agent, _failure_decision)
                 
                 # Check for 413 payload-too-large BEFORE generic 4xx handler.
                 # A 413 is a payload-size error — the correct response is to
