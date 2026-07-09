@@ -187,7 +187,7 @@ def _generic_hermes_status_summary(text: str) -> str:
     lines = [
         "Hermes is online. Gateway and dashboard are active.",
         "Telegram concise mode is on.",
-        "ClickUp IDs are still unresolved.",
+        "ClickUp IDs are now canonical.",
     ]
     if re.search(r"\b(no files|nothing was changed|no changes made|no memory)\b", text, re.I):
         lines.append("No changes made.")

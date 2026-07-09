@@ -181,7 +181,7 @@ def test_telegram_generic_short_status_preserves_key_facts(monkeypatch):
     assert "gateway" in lowered and "active" in lowered
     assert "dashboard" in lowered and "active" in lowered
     assert "telegram concise mode is on" in lowered
-    assert "clickup ids are still unresolved" in lowered
+    assert "clickup ids are now canonical" in lowered
     assert "|" not in result
     assert "Blocked" not in result
 
