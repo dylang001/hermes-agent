@@ -1,6 +1,6 @@
 {
   "description": "Local smoke suite using AIAgent.run_conversation for safe mocked-provider cases plus deterministic simulated failure cases. No real sends, deletes, deployments, service restarts, connector writes, or VPS changes.",
-  "generated_at": "2026-07-09T10:50:40Z",
+  "generated_at": "2026-07-09T11:04:14Z",
   "mode": "phase6_real_local_smoke_mocked_connectors",
   "rows": [
     {
@@ -18,7 +18,7 @@
       "provider": "custom",
       "quality_score": 1.0,
       "request_class": "direct_answer",
-      "runtime_request_bytes": 9306,
+      "runtime_request_bytes": 9287,
       "side_effects": "none",
       "tool_exposure_group": "none",
       "tool_schema_bytes": 2
@@ -38,7 +38,7 @@
       "provider": "custom",
       "quality_score": 1.0,
       "request_class": "analysis_or_research",
-      "runtime_request_bytes": 14376,
+      "runtime_request_bytes": 14357,
       "side_effects": "none",
       "tool_exposure_group": "research",
       "tool_schema_bytes": 5023
@@ -58,7 +58,7 @@
       "provider": "custom",
       "quality_score": 1.0,
       "request_class": "analysis_or_research",
-      "runtime_request_bytes": 35366,
+      "runtime_request_bytes": 35347,
       "side_effects": "none",
       "tool_exposure_group": "engineering_readonly",
       "tool_schema_bytes": 25692
@@ -78,7 +78,7 @@
       "provider": "custom",
       "quality_score": 1.0,
       "request_class": "scoped_lookup",
-      "runtime_request_bytes": 22681,
+      "runtime_request_bytes": 22662,
       "side_effects": "none",
       "tool_exposure_group": "personal_readonly",
       "tool_schema_bytes": 13015
