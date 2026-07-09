@@ -28,7 +28,8 @@ def test_telegram_long_task_compacts_final_response(monkeypatch):
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     text = "Validation completed.\n" + "\n".join(f"detail line {i}" for i in range(40))
     result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
-    assert result.startswith("Done - Validation completed.")
+    assert result.startswith("Summary:")
+    assert "Validation completed." in result
     assert "Ask for details" in result
     assert "detail line 39" not in result
 
@@ -45,7 +46,7 @@ def test_telegram_log_heavy_task_summarizes_instead_of_dumping_logs(monkeypatch)
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     text = "Traceback\n" + "\n".join(f"ERROR noisy raw log {i}" for i in range(30))
     result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
-    assert result.startswith("Found issue -")
+    assert result.startswith("Found issue.")
     assert "ERROR noisy raw log 29" not in result
 
 
@@ -56,7 +57,7 @@ def test_telegram_discrepancy_status_is_brief(monkeypatch):
         "memory_discrepancy",
         "Found conflicting ClickUp list IDs across local memory and Mem0; checking live config and prior notes.",
     )
-    assert result == "I found a stale memory/source conflict and used live config as the source of truth. No changes made."
+    assert result == "Found conflicting ClickUp list IDs across local memory and Mem0; checking live config and prior notes."
 
 
 def test_telegram_command_trace_status_is_suppressed(monkeypatch):
@@ -66,7 +67,7 @@ def test_telegram_command_trace_status_is_suppressed(monkeypatch):
         "progress",
         "Ran command: rg clickup\nViewed file gateway/run.py\nEdited file gateway/run.py",
     )
-    assert result == "Working - I am running the required checks and will summarize the result."
+    assert result == "Working on it. I’ll keep the update short."
     assert "Ran command" not in result
     assert "Viewed file" not in result
 
@@ -78,7 +79,7 @@ def test_telegram_internal_thinking_marker_never_reaches_final(monkeypatch):
         "I will run grep across the repo. Ran command: grep -R clickup ."
     )
     result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
-    assert result == "Done - I summarized the command/tool work. Ask for details for the full report."
+    assert result == "Done. I summarized the work. Ask for details if you want the full trace."
     assert "Thinking" not in result
     assert "grep -R" not in result
 
@@ -96,7 +97,7 @@ def test_telegram_tool_trace_dispatch_is_summarized(monkeypatch):
     dispatcher = GatewayEventDispatcher(Adapter(), enqueue_tool_line=queued.append)
     dispatcher.dispatch(ToolCallChunk(tool_name="terminal", preview="cat /var/log/hermes.log"))
 
-    assert queued == ["Working - I am running the required checks and will summarize the result."]
+    assert queued == ["Working on it. I’ll keep the update short."]
 
 
 @pytest.mark.asyncio
@@ -115,7 +116,7 @@ async def test_telegram_stream_commentary_trace_is_summarized(monkeypatch):
     ok = await consumer._send_commentary("I'll inspect the repo first, then run rg over the files.")
 
     assert ok is True
-    assert sent == ["Working - I am checking the relevant context and will keep Telegram concise."]
+    assert sent == ["Working on it. I’ll keep the update short."]
     assert "I'll inspect" not in sent[0]
 
 
@@ -167,21 +168,15 @@ Reviewer: Dylan
     assert "Generated:" not in result
     assert "Operator" not in result
     assert "Reviewer" not in result
-    assert "Hermes is online" in result
-    assert "Gateway is active" in result
-    assert "Only thing still unresolved" in result
+    assert "Gateway: active" in result
+    assert "Dashboard: active" in result
+    assert "ClickUp: unresolved" in result
 
 
-def test_telegram_generic_short_status_preserves_key_facts(monkeypatch):
+def test_telegram_generic_short_status_is_not_replaced_with_canned_facts(monkeypatch):
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     result = _sanitize_gateway_final_response(Platform.TELEGRAM, "Hermes status checked.")
-    lowered = result.lower()
-    assert result != "Hermes status checked."
-    assert "hermes is online" in lowered
-    assert "gateway" in lowered and "active" in lowered
-    assert "dashboard" in lowered and "active" in lowered
-    assert "telegram concise mode is on" in lowered
-    assert "clickup ids are now canonical" in lowered
+    assert result == "Hermes status checked."
     assert "|" not in result
     assert "Blocked" not in result
 
@@ -189,7 +184,16 @@ def test_telegram_generic_short_status_preserves_key_facts(monkeypatch):
 def test_telegram_generic_short_status_preserves_no_changes(monkeypatch):
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     result = _sanitize_gateway_final_response(Platform.TELEGRAM, "Hermes status checked. No changes made.")
-    assert "No changes made." in result
+    assert result == "Hermes status checked. No changes made."
+
+
+def test_telegram_unrelated_answer_is_not_replaced_by_status_template(monkeypatch):
+    monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
+    text = "The API key rotation window is tomorrow. Hermes status checked."
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
+    assert result == text
+    assert "Gateway and dashboard" not in result
+    assert "ClickUp IDs" not in result
 
 
 def test_telegram_full_report_expands_without_wrong_approval(monkeypatch):
@@ -222,7 +226,7 @@ No files or memory were changed during this read-only check.
     assert "Dashboard: active" in result
     assert "Memory/tool/evidence/failure policies: enabled" in result
     assert "MCP children: Exa + Obsidian only" in result
-    assert "Remaining issue:" in result
+    assert "ClickUp: unresolved" in result
 
 
 def test_telegram_full_report_uses_canonical_clickup_when_resolved(monkeypatch):
@@ -240,7 +244,7 @@ def test_telegram_full_report_uses_canonical_clickup_when_resolved(monkeypatch):
         "No files or memory were changed during this check."
     )
     result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
-    assert "ClickUp IDs: canonical" in result
+    assert "ClickUp IDs canonical" in result
     assert "Remaining issue:" not in result
     assert "not canonical" not in result
 
@@ -249,7 +253,7 @@ def test_telegram_source_conflict_default_is_human_and_brief(monkeypatch):
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     text = "Found conflicting ClickUp list IDs across memory and live config. Used live config. No changes made."
     result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
-    assert result == "I found a stale memory/source conflict and used live config as the source of truth. No changes made."
+    assert result == text
     assert "discrepancy report" not in result.lower()
 
 
