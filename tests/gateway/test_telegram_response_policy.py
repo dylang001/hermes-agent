@@ -56,7 +56,7 @@ def test_telegram_discrepancy_status_is_brief(monkeypatch):
         "memory_discrepancy",
         "Found conflicting ClickUp list IDs across local memory and Mem0; checking live config and prior notes.",
     )
-    assert result == "Found a stale memory/source conflict. I am verifying against live config before touching anything."
+    assert result == "I found a stale memory/source conflict and used live config as the source of truth. No changes made."
 
 
 def test_telegram_command_trace_status_is_suppressed(monkeypatch):
@@ -142,7 +142,82 @@ async def test_non_telegram_stream_commentary_is_unchanged(monkeypatch):
 def test_telegram_details_request_preserves_expanded_output(monkeypatch):
     monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
     text = "Full report:\n" + "\n".join(f"detail line {i}" for i in range(30))
-    assert _sanitize_gateway_final_response(Platform.TELEGRAM, text) == text
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
+    assert result.startswith("Full report:")
+    assert "detail line 0" in result
+    assert "detail line 6" in result
+
+
+def test_telegram_short_status_must_not_be_blocked_or_table(monkeypatch):
+    monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
+    text = """Blocked - Hermes — short status (read-only check, nothing touched)
+| Area | State | Note |
+| --- | --- | --- |
+| Gateway | active | healthy |
+| Dashboard | active | healthy |
+| Telegram concise mode | enabled | ok |
+| ClickUp | unresolved | canonical list ID missing |
+Generated: today
+Operator: Hermes
+Reviewer: Dylan
+"""
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
+    assert "Blocked" not in result
+    assert "|" not in result
+    assert "Generated:" not in result
+    assert "Operator" not in result
+    assert "Reviewer" not in result
+    assert "Hermes is online" in result
+    assert "Gateway is active" in result
+    assert "Only thing still unresolved" in result
+
+
+def test_telegram_full_report_expands_without_wrong_approval(monkeypatch):
+    monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
+    text = """Need approval - # Hermes — Full Status Report Generated
+Generated: 2026-07-09
+Operator: Hermes
+Reviewer: Dylan
+| Area | State | Note |
+| --- | --- | --- |
+| Gateway | active | healthy |
+| Dashboard | active | healthy |
+| Telegram concise mode | enabled | ok |
+| Observability | enabled | ok |
+| Memory/tool/evidence/failure policies | enabled | ok |
+| MCP children | Exa + Obsidian only | no Zoho child |
+| Canonical context | installed | ok |
+| ClickUp | unresolved | workspace reference found, verified list ID missing |
+No files or memory were changed during this read-only check.
+"""
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
+    assert result.startswith("Full report:")
+    assert "Need approval" not in result
+    assert "Blocked" not in result
+    assert "Generated:" not in result
+    assert "Operator" not in result
+    assert "Reviewer" not in result
+    assert "|" not in result
+    assert "Gateway: active" in result
+    assert "Dashboard: active" in result
+    assert "Memory/tool/evidence/failure policies: enabled" in result
+    assert "MCP children: Exa + Obsidian only" in result
+    assert "Remaining issue:" in result
+
+
+def test_telegram_source_conflict_default_is_human_and_brief(monkeypatch):
+    monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
+    text = "Found conflicting ClickUp list IDs across memory and live config. Used live config. No changes made."
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
+    assert result == "I found a stale memory/source conflict and used live config as the source of truth. No changes made."
+    assert "discrepancy report" not in result.lower()
+
+
+def test_telegram_actual_approval_still_uses_need_approval(monkeypatch):
+    monkeypatch.setenv("HERMES_TELEGRAM_CONCISE_RESPONSES", "1")
+    text = "Approval required before archive stale worktrees under /root/.hermes/worktrees."
+    result = _sanitize_gateway_final_response(Platform.TELEGRAM, text)
+    assert result.startswith("Need approval - Approval required before archive stale worktrees")
 
 
 def test_non_telegram_surfaces_are_unchanged(monkeypatch):
