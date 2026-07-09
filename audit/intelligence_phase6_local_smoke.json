@@ -1,0 +1,136 @@
+{
+  "description": "Local smoke suite using AIAgent.run_conversation for safe mocked-provider cases plus deterministic simulated failure cases. No real sends, deletes, deployments, service restarts, connector writes, or VPS changes.",
+  "generated_at": "2026-07-09T10:50:40Z",
+  "mode": "phase6_real_local_smoke_mocked_connectors",
+  "rows": [
+    {
+      "approval_state": "unchanged",
+      "case_id": "direct-answer",
+      "final_state": "completed",
+      "kind": "simple_direct_answer",
+      "memory_decision": "skipped",
+      "metric_source": {
+        "connector_data": "fixture-derived",
+        "prompt_and_schema": "real-runtime-derived",
+        "provider_response": "mock-runtime-derived"
+      },
+      "model": "mock-runtime/model",
+      "provider": "custom",
+      "quality_score": 1.0,
+      "request_class": "direct_answer",
+      "runtime_request_bytes": 9306,
+      "side_effects": "none",
+      "tool_exposure_group": "none",
+      "tool_schema_bytes": 2
+    },
+    {
+      "approval_state": "unchanged",
+      "case_id": "research",
+      "final_state": "completed",
+      "kind": "current_research_style",
+      "memory_decision": "skipped",
+      "metric_source": {
+        "connector_data": "fixture-derived",
+        "prompt_and_schema": "real-runtime-derived",
+        "provider_response": "mock-runtime-derived"
+      },
+      "model": "mock-runtime/model",
+      "provider": "custom",
+      "quality_score": 1.0,
+      "request_class": "analysis_or_research",
+      "runtime_request_bytes": 14376,
+      "side_effects": "none",
+      "tool_exposure_group": "research",
+      "tool_schema_bytes": 5023
+    },
+    {
+      "approval_state": "unchanged",
+      "case_id": "repo-log",
+      "final_state": "completed",
+      "kind": "repo_log_diagnosis",
+      "memory_decision": "project",
+      "metric_source": {
+        "connector_data": "fixture-derived",
+        "prompt_and_schema": "real-runtime-derived",
+        "provider_response": "mock-runtime-derived"
+      },
+      "model": "mock-runtime/model",
+      "provider": "custom",
+      "quality_score": 1.0,
+      "request_class": "analysis_or_research",
+      "runtime_request_bytes": 35366,
+      "side_effects": "none",
+      "tool_exposure_group": "engineering_readonly",
+      "tool_schema_bytes": 25692
+    },
+    {
+      "approval_state": "unchanged",
+      "case_id": "personal-readonly",
+      "final_state": "completed",
+      "kind": "personal_assistant_mock_readonly",
+      "memory_decision": "user",
+      "metric_source": {
+        "connector_data": "fixture-derived",
+        "prompt_and_schema": "real-runtime-derived",
+        "provider_response": "mock-runtime-derived"
+      },
+      "model": "mock-runtime/model",
+      "provider": "custom",
+      "quality_score": 1.0,
+      "request_class": "scoped_lookup",
+      "runtime_request_bytes": 22681,
+      "side_effects": "none",
+      "tool_exposure_group": "personal_readonly",
+      "tool_schema_bytes": 13015
+    },
+    {
+      "case_id": "approval-required",
+      "failure_policy_decision": "approval_required",
+      "final_state": "approval_required",
+      "kind": "approval_required_stop",
+      "metric_source": {
+        "failure": "policy-derived"
+      },
+      "quality_score": 1.0,
+      "request_class": "execution_task",
+      "side_effects": "none"
+    },
+    {
+      "case_id": "quota-auth",
+      "failure_policy_decision": "activate_fallback",
+      "failure_policy_error_class": "auth_or_quota",
+      "fallback_attempted": true,
+      "final_state": "completed",
+      "kind": "simulated_failure",
+      "metric_source": {
+        "failure": "policy-derived"
+      },
+      "quality_score": 1.0,
+      "request_class": "analysis_or_research",
+      "retry_failed_provider": false,
+      "side_effects": "none"
+    },
+    {
+      "case_id": "schema-config",
+      "failure_policy_decision": "fail_closed",
+      "failure_policy_error_class": "configuration_or_schema",
+      "fallback_attempted": false,
+      "final_state": "failed",
+      "kind": "simulated_failure",
+      "metric_source": {
+        "failure": "policy-derived"
+      },
+      "quality_score": 1.0,
+      "request_class": "execution_task",
+      "retry_failed_provider": false,
+      "side_effects": "none"
+    }
+  ],
+  "summary": {
+    "approval_required_cases": 1,
+    "cases": 7,
+    "quality_regressions": 0,
+    "side_effects": "none",
+    "simulated_failure_cases": 2
+  }
+}
