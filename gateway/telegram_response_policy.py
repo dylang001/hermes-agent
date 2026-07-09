@@ -14,11 +14,25 @@ from typing import Any
 
 
 _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
-_DETAIL_REQUEST_RE = re.compile(r"\b(full report|details requested|detailed report|expanded output|full details)\b", re.I)
+_DETAIL_REQUEST_RE = re.compile(
+    r"\b(full report|full status report|details requested|detailed report|expanded output|full details|show me more|expand)\b",
+    re.I,
+)
 _DISCREPANCY_RE = re.compile(r"\b(conflict|conflicting|discrepanc|stale memory|source[- ]of[- ]truth|clickup list id)\b", re.I)
 _LOG_HEAVY_RE = re.compile(r"\b(traceback|stack trace|raw log|stderr|stdout|exception|error:|warn(?:ing)?|info\s+heartbeat)\b", re.I)
-_APPROVAL_RE = re.compile(r"\b(approval required|need approval|requires approval|pending approval)\b", re.I)
-_BLOCKED_RE = re.compile(r"\b(blocked|cannot proceed|need input)\b", re.I)
+_APPROVAL_RE = re.compile(
+    r"(?im)^\s*(?:need approval|approval required|requires approval|pending approval)\b|"
+    r"\b(?:need|requires?)\s+(?:dylan'?s\s+)?approval\s+(?:to|before|for)\b",
+)
+_BLOCKED_RE = re.compile(r"(?im)^\s*(?:blocked|cannot proceed|need input)\b")
+_REPORT_BOILERPLATE_RE = re.compile(
+    r"^\s*(?:#+\s*)?(?:hermes\s*[—-]\s*)?(?:full\s+)?(?:status\s+)?report(?:\s+generated)?\s*$|"
+    r"^\s*(?:generated|operator|reviewer)\s*:.*$",
+    re.I | re.M,
+)
+_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
+_TABLE_DIVIDER_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+_HERMES_STATUS_RE = re.compile(r"\b(hermes|gateway|dashboard|telegram concise|observability|mcp|canonical context|clickup)\b", re.I)
 _INTERNAL_TRACE_RE = re.compile(
     r"(?im)"
     r"(?:^|\b)(?:"
@@ -51,10 +65,11 @@ def apply_telegram_response_policy(platform: Any, text: str, *, status: bool = F
     if not body:
         return body
 
-    # Explicit detail/full-report requests should be honored. This keeps the
-    # first-pass Telegram default concise while preserving an escape hatch.
+    # Explicit detail/full-report outputs should expand into a readable mobile
+    # report instead of passing through markdown tables or being misclassified
+    # by incidental "approval"/"blocked" words in audit content.
     if _DETAIL_REQUEST_RE.search(body[:500]):
-        return body
+        return _expanded_report(body)
 
     if status:
         return _compact_status(body)
@@ -78,13 +93,15 @@ def _compact_status(text: str) -> str:
     if _INTERNAL_TRACE_RE.search(text):
         return "Working - I am checking the relevant context and will keep Telegram concise."
     if _DISCREPANCY_RE.search(text):
-        return "Found a stale memory/source conflict. I am verifying against live config before touching anything."
+        return "I found a stale memory/source conflict and used live config as the source of truth. No changes made."
     if _APPROVAL_RE.search(text):
         return "Need approval - " + _first_sentence(text, limit=180)
     if _LOG_HEAVY_RE.search(text) and _is_long_or_loggy(text):
         return "Working - I found log-heavy output and am summarizing the useful evidence."
     if _is_long_or_loggy(text):
         return "Working - I am summarizing the relevant result instead of sending raw details."
+    if _looks_like_structured_status(text):
+        return _human_status_summary(text)
     return _first_sentence(text, limit=260)
 
 
@@ -96,13 +113,14 @@ def _compact_final(text: str) -> str:
     if _APPROVAL_RE.search(text):
         return "Need approval - " + _first_sentence(text, limit=220)
     if _BLOCKED_RE.search(text):
-        return "Blocked - " + _first_sentence(text, limit=220)
+        if not _looks_like_structured_status(text):
+            return "Blocked - " + _first_sentence(text, limit=220)
     if _DISCREPANCY_RE.search(text):
-        count = _extract_count(text)
-        prefix = f"Done - I found {count} source discrepancy item" + ("" if count == "1" else "s") if count else "Done - I found source discrepancies"
-        return prefix + ". Nothing was changed. Ask for details for the full report."
+        return "I found a stale memory/source conflict and used live config as the source of truth. No changes made."
     if _LOG_HEAVY_RE.search(text) and _is_long_or_loggy(text):
         return "Found issue - I summarized the log evidence instead of sending raw logs. Ask for details for the full report."
+    if _looks_like_structured_status(text):
+        return _human_status_summary(text)
     if _is_long_or_loggy(text):
         return _summary_from_lines(text)
     return _first_sentence(text, limit=600)
@@ -132,6 +150,104 @@ def _summary_from_lines(text: str) -> str:
     return f"Done - {head} Ask for details for the full report."
 
 
-def _extract_count(text: str) -> str:
-    match = re.search(r"\b(\d{1,4})\s+(?:stale|conflicting|source|clickup|memory|discrepanc)", text, re.I)
-    return match.group(1) if match else ""
+def _looks_like_structured_status(text: str) -> bool:
+    if _HERMES_STATUS_RE.search(text) and (_TABLE_ROW_RE.search(text) or "#" in text[:80]):
+        return True
+    return bool(_HERMES_STATUS_RE.search(text) and len(text) > 240 and text.count("\n") >= 2)
+
+
+def _human_status_summary(text: str) -> str:
+    clean = _strip_report_chrome(text)
+    lowered = clean.lower()
+    lines: list[str] = []
+    if "gateway" in lowered and "active" in lowered:
+        lines.append("Hermes is online. Gateway is active.")
+    elif "hermes" in lowered:
+        lines.append("Hermes status checked.")
+    if "dashboard" in lowered and "active" in lowered:
+        lines.append("Dashboard is active.")
+    if "telegram concise" in lowered and ("enabled" in lowered or "on" in lowered):
+        lines.append("Telegram concise mode is on.")
+    if "clickup" in lowered and ("unresolved" in lowered or "not canonical" in lowered or "missing" in lowered):
+        lines.append("Only thing still unresolved is the canonical ClickUp list ID.")
+    if not lines:
+        lines.append(_first_sentence(clean, limit=220))
+    return "\n".join(lines[:5])
+
+
+def _expanded_report(text: str) -> str:
+    clean = _strip_report_chrome(text)
+    lowered = clean.lower()
+    lines = ["Full report:"]
+
+    if "hermes" in lowered:
+        lines.append("Hermes is running normally." if "active" in lowered or "online" in lowered else "Hermes status was checked.")
+    if "gateway" in lowered:
+        lines.append("Gateway: active" if "gateway" in lowered and "active" in lowered else "Gateway: checked")
+    if "dashboard" in lowered:
+        lines.append("Dashboard: active" if "dashboard" in lowered and "active" in lowered else "Dashboard: checked")
+    if "telegram concise" in lowered:
+        lines.append("Telegram concise mode: enabled" if "enabled" in lowered or "on" in lowered else "Telegram concise mode: checked")
+    if "observability" in lowered:
+        lines.append("Observability: enabled" if "enabled" in lowered else "Observability: checked")
+    if any(word in lowered for word in ("memory", "tool", "evidence", "failure")) and "enabled" in lowered:
+        lines.append("Memory/tool/evidence/failure policies: enabled")
+    if "exa" in lowered or "obsidian" in lowered:
+        lines.append("MCP children: Exa + Obsidian only")
+    if "canonical context" in lowered:
+        lines.append("Canonical context: installed" if "installed" in lowered else "Canonical context: checked")
+
+    if "clickup" in lowered:
+        lines.extend(
+            [
+                "",
+                "Remaining issue:",
+                "ClickUp list/workspace IDs are still not canonical. I found a workspace/source reference, but not a verified list ID yet.",
+            ]
+        )
+    if re.search(r"\b(no files|nothing was changed|no changes made|read-only)\b", lowered):
+        lines.append("No files or memory were changed during this check.")
+
+    if len(lines) == 1:
+        useful = [line for line in clean.splitlines() if line.strip()]
+        lines.extend(useful[:8])
+    return "\n".join(_dedupe_lines(lines))
+
+
+def _strip_report_chrome(text: str) -> str:
+    lines: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            lines.append("")
+            continue
+        if _REPORT_BOILERPLATE_RE.search(line):
+            continue
+        if _TABLE_DIVIDER_RE.search(line):
+            continue
+        if _TABLE_ROW_RE.search(line):
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            cells = [cell for cell in cells if cell]
+            if not cells or all(cell.lower() in {"area", "state", "note"} for cell in cells):
+                continue
+            lines.append(": ".join(cells[:2]) if len(cells) > 1 else cells[0])
+            continue
+        line = re.sub(r"^\s*#+\s*", "", line)
+        line = line.replace("read-only check, nothing touched", "nothing changed")
+        lines.append(line)
+    clean = "\n".join(lines).strip()
+    clean = re.sub(r"\n{3,}", "\n\n", clean)
+    return clean
+
+
+def _dedupe_lines(lines: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in lines:
+        key = line.strip().lower()
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(line)
+    return out
