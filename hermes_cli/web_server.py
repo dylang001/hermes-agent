@@ -467,7 +467,7 @@ def _is_accepted_host(
         host_only = h.rsplit(":", 1)[0] if ":" in h else h
     host_only = host_only.lower()
 
-    public_lc = (public_host or "").strip().lower()
+    public_lc = (public_host or _configured_dashboard_public_host()).strip().lower()
     if public_lc and host_only == public_lc:
         return True
 

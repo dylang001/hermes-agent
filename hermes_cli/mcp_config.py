@@ -374,7 +374,9 @@ def _oauth_login_probe_timeout(server_config: dict) -> float:
     probe. Historically this path always used 30s, so raising a server's
     configured ``timeout`` did not affect login at all. Prefer an explicit
     ``connect_timeout`` when present; otherwise let an OAuth server's
-    configured ``timeout`` bound the login probe.
+    configured ``timeout`` bound the login probe. When neither is configured,
+    use the interactive OAuth callback window plus headroom rather than the
+    normal 30s probe timeout.
     """
     for key in ("connect_timeout", "timeout"):
         raw = server_config.get(key)
@@ -386,7 +388,7 @@ def _oauth_login_probe_timeout(server_config: dict) -> float:
             continue
         if value > 0:
             return value
-    return 30.0
+    return 315.0
 
 
 _OAUTH_ERROR_SECRET_RE = re.compile(
