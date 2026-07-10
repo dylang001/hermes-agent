@@ -56,11 +56,11 @@ class TestReadFileHandler:
         mock_ops.read_file.assert_called_once_with("/tmp/big.txt", 1, 1)
 
     @patch("tools.file_tools._get_file_ops")
-    def test_exception_returns_error_json(self, mock_get):
+    def test_exception_returns_error_json(self, mock_get, tmp_path):
         mock_get.side_effect = RuntimeError("terminal not available")
 
         from tools.file_tools import read_file_tool
-        result = json.loads(read_file_tool("/tmp/test.txt"))
+        result = json.loads(read_file_tool(str(tmp_path / "test.txt")))
         assert "error" in result
         assert "terminal not available" in result["error"]
 
