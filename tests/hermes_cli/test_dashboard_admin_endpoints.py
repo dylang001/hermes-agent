@@ -21,6 +21,9 @@ def _client():
 
     client = TestClient(app)
     client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
+    app.state.dashboard_public_host = ""
+    app.state.bound_host = None
+    app.state.auth_required = False
     # Keep the state DB under the isolated HERMES_HOME for any handler that
     # touches it.
     hermes_state.DEFAULT_DB_PATH = get_hermes_home() / "state.db"
@@ -804,6 +807,11 @@ class TestUpdateCheckEndpoint:
         import hermes_cli.web_server as ws
 
         monkeypatch.setattr(ws, "detect_install_method", lambda *a, **k: "git")
+        monkeypatch.setattr(
+            ws,
+            "_dashboard_git_update_guard",
+            lambda: {"protected": False, "branch": "main", "ahead": 0},
+        )
         # Stub the shared checker so the contract is deterministic (no network).
         import hermes_cli.banner as banner
 
@@ -827,11 +835,42 @@ class TestUpdateCheckEndpoint:
         # git/pip installs can apply the update in place from the dashboard.
         assert body["can_apply"] is True
 
+    def test_git_integration_branch_reports_manual_update(self, monkeypatch):
+        import hermes_cli.web_server as ws
+        import hermes_cli.banner as banner
+
+        monkeypatch.setattr(ws, "detect_install_method", lambda *a, **k: "git")
+        monkeypatch.setattr(banner, "check_for_updates", lambda: 4)
+        monkeypatch.setattr(
+            ws,
+            "_dashboard_git_update_guard",
+            lambda: {
+                "protected": True,
+                "branch": "codex/hermes-latest-main-integration-20260710",
+                "ahead": 36,
+                "message": "protected integration branch",
+                "update_command": "git fetch origin && git merge origin/main",
+            },
+        )
+
+        body = self.client.get("/api/hermes/update/check").json()
+        assert body["behind"] == 4
+        assert body["update_available"] is True
+        assert body["can_apply"] is False
+        assert body["message"] == "protected integration branch"
+        assert body["update_guard"]["protected"] is True
+        assert "git merge origin/main" in body["update_command"]
+
     def test_up_to_date(self, monkeypatch):
         import hermes_cli.web_server as ws
         import hermes_cli.banner as banner
 
         monkeypatch.setattr(ws, "detect_install_method", lambda *a, **k: "git")
+        monkeypatch.setattr(
+            ws,
+            "_dashboard_git_update_guard",
+            lambda: {"protected": False, "branch": "main", "ahead": 0},
+        )
         monkeypatch.setattr(banner, "check_for_updates", lambda: 0)
 
         body = self.client.get("/api/hermes/update/check").json()
@@ -890,6 +929,11 @@ class TestUpdateCheckEndpoint:
         import hermes_cli.banner as banner
 
         monkeypatch.setattr(ws, "detect_install_method", lambda *a, **k: "git")
+        monkeypatch.setattr(
+            ws,
+            "_dashboard_git_update_guard",
+            lambda: {"protected": False, "branch": "main", "ahead": 0},
+        )
         monkeypatch.setattr(banner, "check_for_updates", lambda: 3)
         monkeypatch.setattr(
             ws,
@@ -910,6 +954,11 @@ class TestUpdateCheckEndpoint:
         import hermes_cli.banner as banner
 
         monkeypatch.setattr(ws, "detect_install_method", lambda *a, **k: "git")
+        monkeypatch.setattr(
+            ws,
+            "_dashboard_git_update_guard",
+            lambda: {"protected": False, "branch": "main", "ahead": 0},
+        )
         monkeypatch.setattr(banner, "check_for_updates", lambda: 0)
 
         body = self.client.get("/api/hermes/update/check").json()

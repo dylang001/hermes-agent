@@ -1698,6 +1698,54 @@ def _dashboard_local_update_managed_externally() -> bool:
     return True
 
 
+def _dashboard_git_update_guard() -> Dict[str, Any]:
+    """Return dashboard update guard metadata for git checkouts.
+
+    A plain ``hermes update`` is safe when the checkout can fast-forward to
+    ``origin/main``. It is not safe for protected integration branches that
+    carry local commits, because a generic update can move the runtime away from
+    those preserved commits. In that case the dashboard should report the
+    available upstream updates but require the integration workflow.
+    """
+    try:
+        branch = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        branch_name = branch.stdout.strip() if branch.returncode == 0 else ""
+        ahead = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "rev-list", "--count", "origin/main..HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        ahead_count = int(ahead.stdout.strip() or "0") if ahead.returncode == 0 else 0
+    except Exception:
+        return {"protected": False, "branch": "", "ahead": 0}
+
+    protected = ahead_count > 0
+    return {
+        "protected": protected,
+        "branch": branch_name,
+        "ahead": ahead_count,
+        "message": (
+            "This backend is on a protected integration branch with local "
+            "Hermes changes. Merge upstream into the integration branch and "
+            "apply the tested commit to the VPS instead of running a generic "
+            "dashboard update."
+        )
+        if protected
+        else None,
+        "update_command": (
+            "git fetch origin && git merge origin/main && run the Hermes validation suite"
+            if protected
+            else None
+        ),
+    }
+
+
 def _managed_files_policy(request: Request, *, create_root: bool = True) -> ManagedFilesPolicy:
     raw_forced_root = os.environ.get(_MANAGED_FILES_ROOT_ENV, "").strip()
     if raw_forced_root:
@@ -2721,12 +2769,17 @@ async def get_status(profile: Optional[str] = None):
         # probes (NAS's wildcard-subdomain liveness probe), the SPA's pre-login
         # bootstrap, and anyone who can curl the host — i.e. exactly the audience
         # ``PUBLIC_API_PATHS`` documents this endpoint as serving.
+        update_guard = _dashboard_git_update_guard()
         status = {
             "version": __version__,
             "release_date": __release_date__,
             "config_version": current_ver,
             "latest_config_version": latest_ver,
-            "can_update_hermes": not _dashboard_local_update_managed_externally(),
+            "can_update_hermes": (
+                not _dashboard_local_update_managed_externally()
+                and not update_guard.get("protected")
+            ),
+            "update_guard": update_guard,
             "gateway_running": gateway_running,
             "gateway_state": gateway_state,
             "gateway_platforms": gateway_platforms,
@@ -3531,6 +3584,21 @@ async def update_hermes():
             "update_command": recommended_update_command_for_method(install_method),
         }
 
+    if install_method == "git":
+        update_guard = _dashboard_git_update_guard()
+        if update_guard.get("protected"):
+            message = str(update_guard.get("message") or "Protected checkout")
+            _record_completed_action("hermes-update", message, exit_code=1)
+            return {
+                "ok": False,
+                "pid": None,
+                "name": "hermes-update",
+                "error": "protected_integration_branch",
+                "message": message,
+                "update_command": update_guard.get("update_command") or "manual integration update",
+                "update_guard": update_guard,
+            }
+
     try:
         proc = _spawn_hermes_action(["update"], "hermes-update")
     except Exception as exc:
@@ -3633,15 +3701,20 @@ async def check_hermes_update(force: bool = False):
 
     install_method = detect_install_method(PROJECT_ROOT)
     update_command = recommended_update_command_for_method(install_method)
+    update_guard = (
+        _dashboard_git_update_guard() if install_method == "git" else {"protected": False}
+    )
 
     payload: Dict[str, Any] = {
         "install_method": install_method,
         "current_version": __version__,
         "behind": None,
         "update_available": False,
-        "can_apply": install_method in ("git", "pip"),
-        "update_command": update_command,
+        "can_apply": install_method in ("git", "pip")
+        and not update_guard.get("protected"),
+        "update_command": update_guard.get("update_command") or update_command,
         "message": None,
+        "update_guard": update_guard,
     }
 
     if install_method == "docker":
@@ -3672,6 +3745,8 @@ async def check_hermes_update(force: bool = False):
         payload["message"] = "You're on the latest version."
     else:
         payload["update_available"] = True
+        if update_guard.get("protected"):
+            payload["message"] = update_guard.get("message")
         # Enrich with the actual commits we're behind by, so the desktop's
         # remote update overlay can show "what's changed". git/pip only;
         # best-effort (empty list on any failure).
