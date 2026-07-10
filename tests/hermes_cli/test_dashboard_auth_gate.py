@@ -112,10 +112,11 @@ def test_should_require_auth_truth_table(host, allow_public, expected):
 
 
 def test_should_require_auth_honors_public_url(monkeypatch):
-    from hermes_cli.web_server import should_require_auth
+    from hermes_cli.web_server import _should_require_auth_for_runtime
+
     monkeypatch.setenv("HERMES_DASHBOARD_PUBLIC_URL", "https://hermes.meetlyra.live")
-    assert should_require_auth("127.0.0.1") is True
-    assert should_require_auth("localhost") is True
+    assert _should_require_auth_for_runtime("127.0.0.1") is True
+    assert _should_require_auth_for_runtime("localhost") is True
 
 
 # ---------------------------------------------------------------------------
