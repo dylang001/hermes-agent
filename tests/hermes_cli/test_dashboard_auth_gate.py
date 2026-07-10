@@ -334,6 +334,7 @@ def test_start_server_surfaces_nous_skip_reason_when_unconfigured(monkeypatch):
 
 def test_start_server_loopback_keeps_proxy_headers_off(monkeypatch):
     """Loopback bind: proxy_headers stays False (no TLS terminator in front)."""
+    monkeypatch.setattr(web_server, "_configured_dashboard_public_host", lambda: "")
     captured = _stub_uvicorn_run(monkeypatch)
     web_server.start_server(
         host="127.0.0.1", port=9119,
