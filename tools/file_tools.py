@@ -7,6 +7,7 @@ import logging
 import os
 import posixpath
 import sys
+import tempfile
 import threading
 from pathlib import Path, PurePosixPath
 
@@ -642,6 +643,15 @@ _hermes_config_resolved: str | None = None
 _hermes_config_resolved_loaded = False
 
 
+def _is_in_system_temp_dir(path: str) -> bool:
+    try:
+        resolved = os.path.realpath(path)
+        temp_root = os.path.realpath(tempfile.gettempdir())
+    except Exception:
+        return False
+    return resolved == temp_root or resolved.startswith(temp_root + os.sep)
+
+
 def _get_hermes_config_resolved() -> str | None:
     """Return the resolved absolute path of the Hermes config file (cached)."""
     global _hermes_config_resolved, _hermes_config_resolved_loaded
@@ -672,7 +682,11 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
     )
     for prefix in _SENSITIVE_PATH_PREFIXES:
         if resolved.startswith(prefix) or normalized.startswith(prefix):
-            return _err
+            if not (
+                _is_in_system_temp_dir(resolved)
+                or _is_in_system_temp_dir(normalized)
+            ):
+                return _err
     if resolved in _SENSITIVE_EXACT_PATHS or normalized in _SENSITIVE_EXACT_PATHS:
         return _err
     # Prevent agents from modifying the Hermes config file directly.
