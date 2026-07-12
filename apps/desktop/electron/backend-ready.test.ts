@@ -98,6 +98,23 @@ test('resolves with a HERMES_BACKEND_READY port (headless `serve`)', async () =>
   assert.equal(await p, 43210)
 })
 
+test('primary startup subscribes to the ready signal before yielding boot progress', () => {
+  const mainSource = fs.readFileSync(path.join(import.meta.dirname, 'main.ts'), 'utf8')
+  const primaryStart = mainSource.indexOf("await advanceBootProgress('backend.spawn'")
+  const primaryEnd = mainSource.indexOf("await advanceBootProgress('backend.wait'", primaryStart)
+  const startupSlice = mainSource.slice(primaryStart, primaryEnd)
+
+  const subscription = startupSlice.indexOf('waitForDashboardPortAnnouncement(hermesProcess')
+  const yieldAfterSpawn = startupSlice.indexOf("await advanceBootProgress('backend.port'")
+
+  assert.ok(subscription !== -1, 'primary startup must subscribe to the backend ready signal')
+  assert.ok(yieldAfterSpawn !== -1, 'test must cover the boot-progress yield after spawn')
+  assert.ok(
+    subscription < yieldAfterSpawn,
+    'subscribe before yielding so a fast backend cannot announce its port before the listener exists'
+  )
+})
+
 test('parses the port even when the line arrives split across chunks', async () => {
   const child = makeFakeChild()
   const p = waitForDashboardPort(child, 1000)
