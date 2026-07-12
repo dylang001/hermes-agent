@@ -6896,13 +6896,16 @@ async function startHermes() {
       }
     })
 
+    // Subscribe before the first await after spawn. A warm local backend can
+    // bind and announce its ephemeral port while the boot-progress renderer
+    // update is in flight; attaching below that yield loses the one-shot
+    // stdout line and leaves Desktop waiting until the 90s timeout.
+    const portAnnouncement = waitForDashboardPortAnnouncement(hermesProcess, { readyFile })
+
     await advanceBootProgress('backend.port', 'Waiting for Hermes backend to launch', 86)
 
     // Discover the ephemeral port the child bound to
-    const port = await Promise.race([
-      waitForDashboardPortAnnouncement(hermesProcess, { readyFile }),
-      backendStartFailed
-    ])
+    const port = await Promise.race([portAnnouncement, backendStartFailed])
 
     if (readyFile) {
       fs.unlink(readyFile, () => {})

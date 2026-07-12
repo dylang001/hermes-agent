@@ -191,8 +191,7 @@
     "afterSign": "scripts/notarize.mjs",
     "asarUnpack": [
       "**/*.node",
-      "**/prebuilds/**",
-      "dist/**"
+      "**/prebuilds/**"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
