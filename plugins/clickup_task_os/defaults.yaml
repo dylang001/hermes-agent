@@ -1,0 +1,55 @@
+# ClickUp Task OS — default board mapping for Orchidea Ops.
+# Override under config.yaml key `clickup_task_os:` or HERMES_HOME/clickup_task_os.yaml.
+# Secrets (CLICKUP_API_TOKEN) stay in .env — never commit tokens.
+
+workspace_id: "90152507264"
+space_id: "901511216857"
+folder_id: "901516535453"   # hidden folder under Orchidea space
+list_id: "901524109892"     # Orchidea Ops
+
+# Live Ops statuses (verified 2026-07-15). There is no native Ready/Review
+# column: Ready maps to `next` (go column); Review maps to `waiting` plus
+# the `hermes-review` tag until a native review status is added in ClickUp UI.
+statuses:
+  inbox: inbox
+  ready: next
+  in_progress: in-progress
+  waiting: waiting
+  review: waiting
+  done: done
+
+tags:
+  hermes_ready: hermes-ready
+  hermes_review: hermes-review
+  waiting_on_dylan: waiting-on-dylan
+  waiting_external: waiting-external
+  approval_required: approval-required
+
+max_concurrent: 2
+max_repair_attempts: 2
+worker_profile: task-os
+poll_page_size: 50
+
+models:
+  planner: glm-5.2
+  executor: minimax-m3
+  verify: deepseek-v4-flash
+  reviewer: deepseek-v4-pro
+
+# Heuristic gate: tasks matching these patterns never auto-complete side
+# effects; they stop in Review/Waiting for explicit approval.
+high_risk_patterns:
+  - publish
+  - send email
+  - email customer
+  - customer-facing
+  - wire money
+  - transfer funds
+  - delete production
+  - drop table
+  - revoke
+  - credential
+  - api key
+  - password reset
+  - post to (twitter|x|linkedin|instagram)
+  - tweet
