@@ -12,7 +12,9 @@ Plan audits:
 - [x] Runtime metadata + Mem0 remap + equivalent-path halt@2 + tests (25 green)
 - [x] VPS config: Obsidian → `/opt/hermes/data/obsidian/Growth OS`; Exa MCP disabled; env hint; equivalent_failure:2
 - [x] Deploy code to VPS `/opt/hermes/app` + restart dashboard/gateway (services active)
-- [ ] Desktop smoke: **new session** — request audit notes → must use `/opt/hermes/app/audit`, halt ≤2 on equivalent /root probes
+- [x] Fix `/root/.git` fatal (`cwd=/root` from Desktop memory) — path_boundary + heal 11 sessions
+- [x] Deploy SHA `72ec5f64e` marker + VPS smoke (`completion/heal → /opt/hermes/app`)
+- [ ] Desktop smoke: **genuinely new session** (clear remembered `/root` or update Desktop) — “Find and summarize the latest Hermes audit notes.” → `/opt/hermes/app/audit`, no `/root` in logs
 
 ### Phase 2 — inventory
 - [x] `audit/HERMES_CAPABILITY_INVENTORY.md`
