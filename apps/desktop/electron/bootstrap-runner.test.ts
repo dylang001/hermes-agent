@@ -100,10 +100,12 @@ test('fresh bootstrap args include the packaged commit pin', () => {
   )
 })
 
-test('existing-checkout bootstrap args keep branch but skip the packaged commit pin', () => {
+test('existing-checkout bootstrap args skip packaged stamp branch and commit', () => {
   const installStamp = { commit: 'a'.repeat(40), branch: 'main' }
 
-  assert.deepEqual(buildPinArgs(installStamp, { pinCommit: false }), ['-Branch', 'main'])
+  // Without an explicit live branch, repair/update must not force the stamp
+  // branch (that jumped production checkouts onto packaging branches).
+  assert.deepEqual(buildPinArgs(installStamp, { pinCommit: false }), [])
   assert.deepEqual(
     buildPosixPinArgs({
       installStamp,
@@ -111,7 +113,33 @@ test('existing-checkout bootstrap args keep branch but skip the packaged commit 
       hermesHome: '/tmp/hermes',
       pinCommit: false
     }),
-    ['--dir', '/tmp/hermes-agent', '--hermes-home', '/tmp/hermes', '--branch', 'main']
+    ['--dir', '/tmp/hermes-agent', '--hermes-home', '/tmp/hermes']
+  )
+})
+
+test('existing-checkout bootstrap args keep the live checkout branch', () => {
+  const installStamp = { commit: 'a'.repeat(40), branch: 'main' }
+
+  assert.deepEqual(
+    buildPinArgs(installStamp, { pinCommit: false, branch: 'codex/hermes-phase1-upstream-merge-20260715' }),
+    ['-Branch', 'codex/hermes-phase1-upstream-merge-20260715']
+  )
+  assert.deepEqual(
+    buildPosixPinArgs({
+      installStamp,
+      activeRoot: '/tmp/hermes-agent',
+      hermesHome: '/tmp/hermes',
+      pinCommit: false,
+      branch: 'codex/hermes-phase1-upstream-merge-20260715'
+    }),
+    [
+      '--dir',
+      '/tmp/hermes-agent',
+      '--hermes-home',
+      '/tmp/hermes',
+      '--branch',
+      'codex/hermes-phase1-upstream-merge-20260715'
+    ]
   )
 })
 

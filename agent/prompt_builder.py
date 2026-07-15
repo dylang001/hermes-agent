@@ -71,11 +71,24 @@ def _find_git_root(start: Path) -> Optional[Path]:
 
     Returns the directory containing ``.git``, or ``None`` if we hit the
     filesystem root without finding one.
+
+    Never raises on inaccessible privileged parents (e.g. ``/root/.git`` when
+    Hermes runs as a non-root service user after migration).
     """
-    current = start.resolve()
-    for parent in [current, *current.parents]:
-        if (parent / ".git").exists():
-            return parent
+    from agent.path_boundary import git_walk_parents, safe_exists
+
+    try:
+        current = start.expanduser()
+    except OSError:
+        return None
+    for parent in git_walk_parents(current):
+        git_dir = parent / ".git"
+        try:
+            if safe_exists(git_dir):
+                return parent
+        except OSError:
+            # Unreadable parent — stop walking upward rather than crash the turn.
+            break
     return None
 
 
@@ -89,18 +102,33 @@ def _find_hermes_md(cwd: Path) -> Optional[Path]:
     including) the git repository root.  Returns the first match, or
     ``None`` if nothing is found.
     """
-    stop_at = _find_git_root(cwd)
-    current = cwd.resolve()
+    from agent.path_boundary import git_walk_parents, path_is_usable_dir, sanitize_cwd
+
+    try:
+        raw = cwd.expanduser()
+    except OSError:
+        raw = Path(sanitize_cwd(None))
+    if not path_is_usable_dir(raw):
+        raw = Path(sanitize_cwd(raw))
+
+    stop_at = _find_git_root(raw)
+    try:
+        current = raw.resolve()
+    except OSError:
+        return None
 
     # When there is no git root, only check cwd itself – walking parents
     # could pick up a .hermes.md planted in /tmp, /home, etc.
-    search_dirs = [current, *current.parents] if stop_at else [current]
+    search_dirs = list(git_walk_parents(current)) if stop_at else [current]
 
     for directory in search_dirs:
         for name in _HERMES_MD_NAMES:
             candidate = directory / name
-            if candidate.is_file():
-                return candidate
+            try:
+                if candidate.is_file():
+                    return candidate
+            except OSError:
+                break
         if stop_at and directory == stop_at:
             break
     return None
@@ -1123,6 +1151,12 @@ def build_environment_hints() -> str:
                 "hostname."
             )
         hints.append("\n".join(host_lines))
+        try:
+            from agent.runtime_metadata import collect_runtime_metadata
+
+            hints.append(collect_runtime_metadata().as_prompt_block())
+        except Exception as e:
+            logger.debug("Could not build authoritative runtime metadata: %s", e)
 
         # Windows-local terminal runs bash, not PowerShell — the model must
         # know this or it will issue PowerShell syntax and fail.
@@ -1980,10 +2014,19 @@ def build_context_files_prompt(
     When *skip_soul* is True, SOUL.md is not included here (it was already
     loaded via ``load_soul_md()`` for the identity slot).
     """
-    if cwd is None:
-        cwd = os.getcwd()
+    from agent.path_boundary import path_is_usable_dir, sanitize_cwd
 
-    cwd_path = Path(cwd).resolve()
+    if cwd is None:
+        try:
+            cwd = os.getcwd()
+        except OSError:
+            cwd = sanitize_cwd(None)
+    if not path_is_usable_dir(cwd):
+        cwd = sanitize_cwd(cwd)
+    try:
+        cwd_path = Path(cwd).resolve()
+    except OSError:
+        cwd_path = Path(sanitize_cwd(None))
     sections = []
 
     # Priority-based project context: first match wins

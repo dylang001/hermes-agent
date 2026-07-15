@@ -1,0 +1,21 @@
+name: admin
+description: Human admin sessions for setup, cron, plugins, MCP.
+platforms:
+  cli:
+    enabled_toolsets:
+      - file
+      - terminal
+      - memory
+      - skills
+      - session_search
+      - web
+      - cronjob
+      - clarify
+      - todo
+      - kanban
+    disabled_toolsets:
+      - computer_use
+plugins:
+  enabled: []
+skills_policy: all_installed
+note: Prefer interactive human use; do not leave as forever-on gateway surface.

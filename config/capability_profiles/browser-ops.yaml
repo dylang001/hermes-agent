@@ -1,0 +1,20 @@
+name: browser-ops
+description: Explicit browser automation sessions.
+platforms:
+  cli:
+    enabled_toolsets:
+      - file
+      - terminal
+      - memory
+      - skills
+      - web
+      - browser
+      - vision
+      - clarify
+      - todo
+    disabled_toolsets:
+      - computer_use
+      - kanban
+plugins:
+  enabled: []
+skills_policy: browser_and_web
