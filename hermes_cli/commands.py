@@ -475,6 +475,11 @@ def gateway_help_lines() -> list[str]:
             alias_parts.append(f"`/{a}`")
         alias_note = f" (alias: {', '.join(alias_parts)})" if alias_parts else ""
         lines.append(f"`/{cmd.name}{args}` -- {cmd.description}{alias_note}")
+    # Thin capability hint (no new slash command / tool schema).
+    lines.append(
+        "Skill discovery tip: describe the missing capability in chat; "
+        "Hermes can propose installed skills / staged installs without auto-enabling them."
+    )
     return lines
 
 

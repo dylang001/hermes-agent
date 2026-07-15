@@ -377,7 +377,7 @@ Do not write memory, Mem0, repo docs, or canonical context until Dylan approves.
 | active facts to keep | active VPS production path is `/usr/local/lib/hermes-agent` | keep and canonicalize |
 | active facts to keep | public/Desktop URL is `https://hermes.meetlyra.live` | keep and canonicalize |
 | stale facts to archive | `/Users/dylanangloher/Documents/Hermes` as implementation checkout | archive/mark historical placeholder |
-| stale facts to archive | direct IP Desktop URL `http://212.86.105.178:9119` | archive/mark historical incident value |
+| stale facts to archive | retired direct-IP Desktop URL (production is `https://hermes.meetlyra.live` / `138.128.247.49`) | archive/mark historical incident value |
 | facts needing Dylan review | canonical ClickUp workspace/list IDs are missing | verify via safe source before canonicalizing |
 | facts needing Dylan review | local memory provider empty/unset versus VPS `mem0` | decide environment-specific truth |
 | facts needing Dylan review | local fallback model chain differs from VPS MiniMax M3 setup | preserve VPS provider/model until reviewed |
