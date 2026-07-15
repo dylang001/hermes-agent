@@ -1,41 +1,61 @@
-# Hermes Task OS (ClickUp + Kanban)
+# Hermes Task OS + capability hardening
 
-Plan: `tasks/plans/2026-07-15-hermes-clickup-task-os.md`  
-Plugin: `plugins/clickup_task_os/README.md`
+## Active — tool failure / capability (2026-07-15)
 
-## Confirmed Orchidea Ops (live 2026-07-15)
+Plan audits:
+- `audit/HERMES_TOOL_FAILURE_ROOT_CAUSE.md`
+- `audit/HERMES_CAPABILITY_INVENTORY.md`
+- `audit/HERMES_PROTECTED_OPTIMIZATIONS_AUDIT.md`
 
-- Workspace `90152507264` · Space `901511216857` · Folder `901516535453` (hidden) · List `901524109892`
-- Ready = `next` · In Progress = `in-progress` · Waiting = `waiting` · Review = `waiting` + `hermes-review` · Done = `done` (human)
-- Trigger tag: `hermes-ready`
+### Phase 1 — stale path / guardrail
+- [x] Diagnose `/root/audit` + `same_tool_failure_halt` (Mem0 + coarse halt)
+- [x] Runtime metadata + Mem0 remap + equivalent-path halt@2 + tests (25 green)
+- [x] VPS config: Obsidian → `/opt/hermes/data/obsidian/Growth OS`; Exa MCP disabled; env hint; equivalent_failure:2
+- [x] Deploy code to VPS `/opt/hermes/app` + restart dashboard/gateway (services active)
+- [ ] Desktop smoke: **new session** — request audit notes → must use `/opt/hermes/app/audit`, halt ≤2 on equivalent /root probes
 
-## Gate before Task OS cron
+### Phase 2 — inventory
+- [x] `audit/HERMES_CAPABILITY_INVENTORY.md`
 
-Protected optimizations audit: `audit/HERMES_PROTECTED_OPTIMIZATIONS_AUDIT.md`
+### Phase 3 — capability profiles
+- [x] YAML presets under `config/capability_profiles/`
+- [x] `hermes_cli/capability_profiles.py` (list/show/apply/measure)
+- [ ] Apply `daily-ops` to default VPS chat profile (after code deploy)
+- [ ] Measure schema size before/after on VPS
 
-- [x] Local + VPS SHA match approved tag `07bdd098c`
-- [x] Intelligence/Telegram policies present; VPS gateway flags ON
-- [x] Loop Engineering = unmerged bounded-delivery-loop; remain removed
-- [x] clickup-bridge does not poll (no duplicate executor vs task_os)
-- [ ] Remove `clickup_task_os` from default `plugins.enabled` (keep on task-os only)
-- [ ] Commit/deploy Task OS decision + one live Ops smoke
-- [ ] Enable cron only after gates pass — **not yet**
+### Phase 4 — skill discovery
+- [x] `agent/skill_discovery.py` (classify → search installed → evaluate → approval gates)
+- [ ] Wire into Task OS /chat help text (optional thin)
+- [ ] One staged install of a harmless official skill (validation)
 
-## Phase 1
+### Phase 5 — MCP / plugins
+- [x] Obsidian path fix (config)
+- [x] Exa MCP parked (prefer native web)
+- [ ] MCP health check after dashboard restart
+- [ ] Zoho/Composio remain disabled until explicit need
 
-- [x] Audit + decisions
-- [x] Thin ClickUp client/plugin (no core tools)
-- [x] Poller with Kanban `idempotency_key=clickup:<id>` + pre-claim safety check
-- [x] Review/Waiting terminal paths + high-risk approval wall
-- [x] Focused tests (13) + rollback docs in plugin README
-- [x] Run setup + verify-board on `task-os` profile (cron left for you to enable)
-- [ ] Smoke: one Ready+hermes-ready Ops task through Review
+### Phase 6 — capability-gap
+- [x] `agent/capability_gap.py` structured report
+- [ ] Emit from Task OS worker on missing integrations
 
-## Later
+### Phase 7 — validation matrix
+- [ ] artifact create/update
+- [ ] Obsidian search (fixed path)
+- [ ] ClickUp update
+- [ ] Gmail (if oauth present)
+- [ ] GitHub work
+- [ ] browser research (browser-ops profile)
+- [ ] cron / delegate / skill stage / stale-path recovery / failed-MCP recovery
 
-- [ ] Phase 2 evals
-- [ ] Phase 3 narrow knowledge retrieval
-- [ ] Phase 4 capture slash commands
-- [ ] Phase 5 Kanban multi-agent
+## Earlier — Task OS Phase 1 (done)
 
-Success: Ready+`hermes-ready` tasks run once asynchronously with evidence in Review mapping; chat is capture/approval only.
+- Deploy tip previously `d1908cfcf`; VPS cron `4dcf0a86d0e8` every 5m
+- Smoke task `86carck03` → waiting + hermes-review
+- Default plugins: clickup-bridge only; task-os: clickup_task_os only
+
+## Later (Task OS product phases)
+
+- [ ] Task OS Phase 2 evals
+- [ ] Task OS Phase 3 narrow knowledge retrieval
+- [ ] Task OS Phase 4 capture slash commands
+- [ ] Task OS Phase 5 Kanban multi-agent

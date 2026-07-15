@@ -1511,6 +1511,8 @@ def _normalize_completion_path(path_part: str) -> str:
 
 
 def _completion_cwd(params: dict | None = None) -> str:
+    from agent.path_boundary import path_is_usable_dir, preferred_fallback_cwd, sanitize_cwd
+
     params = params or {}
     raw = (
         params.get("cwd")
@@ -1524,15 +1526,18 @@ def _completion_cwd(params: dict | None = None) -> str:
         # configured terminal.cwd wins over a stale process env / launch dir.
         or _launch_configured_cwd()
         or os.environ.get("TERMINAL_CWD")
-        or os.getcwd()
+        or preferred_fallback_cwd()
     )
     try:
         resolved = os.path.abspath(os.path.expanduser(str(raw)))
-        if os.path.isdir(resolved):
+        # isdir("/root") is True for the dylan service user, but access fails —
+        # require traversable usable dirs and never accept legacy /root cwd.
+        if path_is_usable_dir(resolved):
             return resolved
+        return sanitize_cwd(resolved, fallback=preferred_fallback_cwd())
     except Exception:
         pass
-    return os.getcwd()
+    return preferred_fallback_cwd()
 
 
 def _terminal_task_cwd(session: dict | None) -> str:
@@ -1586,12 +1591,30 @@ def _heal_dead_cwd(cwd: str) -> str:
     ancestor, then resolve its common git root, so a dead-worktree cwd collapses
     to the live repo root (and its real current branch).
 
+    Also heals migration-stale ``/root`` cwds that still ``isdir`` but are not
+    traversable by the service user — those must reset to the app root rather
+    than crash on ``/root/.git`` permission errors.
+
     Only meaningful for local backends; a remote/SSH cwd may legitimately not
     exist on the host, so callers must skip healing there.
     """
+    from agent.path_boundary import (
+        is_blocked_legacy_path,
+        path_is_usable_dir,
+        preferred_fallback_cwd,
+        sanitize_cwd,
+    )
+
     raw = (cwd or "").strip()
-    if not raw or os.path.isdir(raw):
+    if not raw:
         return raw
+    if path_is_usable_dir(raw):
+        return raw
+    # Stale /root (or other blocked legacy) — deterministic reset, no parent walk
+    # into privileged trees. Deleted worktrees are NOT blocked — they fall through
+    # to the ancestor climb below.
+    if is_blocked_legacy_path(raw):
+        return sanitize_cwd(raw, fallback=preferred_fallback_cwd())
 
     probe = raw
     # Climb to the first ancestor that still exists on disk.
@@ -1600,18 +1623,19 @@ def _heal_dead_cwd(cwd: str) -> str:
         if not parent or parent == probe:
             break
         probe = parent
-        if os.path.isdir(probe):
+        if path_is_usable_dir(probe):
             break
 
-    if not os.path.isdir(probe):
-        return raw
+    if not path_is_usable_dir(probe):
+        return preferred_fallback_cwd()
 
     try:
         root = _git_common_repo_root_for_cwd(probe) or _git_repo_root_for_cwd(probe)
     except Exception:
         root = ""
 
-    return root or probe
+    candidate = root or probe
+    return candidate if path_is_usable_dir(candidate) else preferred_fallback_cwd()
 
 
 def _is_local_terminal_backend() -> bool:
@@ -1867,11 +1891,16 @@ def _persist_session_git_meta(session: dict, cwd: str) -> None:
 
 def _set_session_cwd(session: dict, cwd: str) -> str:
     from hermes_constants import translate_cwd_for_wsl_backend
+    from agent.path_boundary import path_is_usable_dir, preferred_fallback_cwd, sanitize_cwd
 
     cwd = translate_cwd_for_wsl_backend(str(cwd))
     resolved = os.path.abspath(os.path.expanduser(cwd))
-    if not os.path.isdir(resolved):
-        raise ValueError(f"working directory does not exist: {cwd}")
+    if not path_is_usable_dir(resolved):
+        # Permission-denied /root and other migration leftovers: deterministic
+        # reset instead of a fatal Desktop error.
+        resolved = sanitize_cwd(resolved, fallback=preferred_fallback_cwd())
+        if not path_is_usable_dir(resolved):
+            raise ValueError(f"working directory does not exist: {cwd}")
     session["cwd"] = resolved
     # An explicit user choice — persist it as the workspace (and let a later
     # lazy row creation persist it too, not the launch-dir fallback).
@@ -5232,7 +5261,12 @@ def _(rid, params: dict) -> dict:
     # workspace" instead of whatever folder the desktop launched in.
     raw_cwd = str(params.get("cwd") or "").strip()
     try:
-        explicit_cwd = bool(raw_cwd) and os.path.isdir(os.path.abspath(os.path.expanduser(raw_cwd)))
+        from agent.path_boundary import path_is_usable_dir
+
+        candidate = os.path.abspath(os.path.expanduser(raw_cwd)) if raw_cwd else ""
+        # Desktop may remember a post-migration stale "/root" workspace. That
+        # directory "exists" but is not usable — do not treat it as explicit.
+        explicit_cwd = bool(candidate) and path_is_usable_dir(candidate)
     except Exception:
         explicit_cwd = False
     resolved_cwd = _completion_cwd(params)

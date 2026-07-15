@@ -191,6 +191,20 @@ describe('workspaceCwdForNewSession', () => {
     window.localStorage.removeItem('hermes.desktop.workspace-cwd.remote.http%3A%2F%2Fbackend-b.default')
   })
 
+  it('drops remembered remote /root cwd so gateway can pick /opt/hermes/app', async () => {
+    const { sanitizeRememberedWorkspaceCwd } = await import('./session')
+    expect(sanitizeRememberedWorkspaceCwd('/root')).toBe('')
+    expect(sanitizeRememberedWorkspaceCwd('/root/audit')).toBe('')
+    expect(sanitizeRememberedWorkspaceCwd('/opt/hermes/app')).toBe('/opt/hermes/app')
+
+    $connection.set({ baseUrl: 'https://hermes.meetlyra.live', mode: 'remote' } as never)
+    window.localStorage.setItem(
+      'hermes.desktop.workspace-cwd.remote.https%3A%2F%2Fhermes.meetlyra.live.default',
+      '/root',
+    )
+    expect(workspaceCwdForNewSession()).toBe('')
+  })
+
   it('prefers the configured default over the sticky remembered workspace', () => {
     window.localStorage.setItem('hermes.desktop.workspace-cwd', '/home/user/sticky')
     applyConfiguredDefaultProjectDir('/home/user/configured')

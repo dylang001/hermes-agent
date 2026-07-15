@@ -1,0 +1,26 @@
+name: research
+description: Search and synthesis with optional browser.
+platforms:
+  cli:
+    enabled_toolsets:
+      - file
+      - terminal
+      - memory
+      - skills
+      - session_search
+      - web
+      - browser
+      - clarify
+      - todo
+    disabled_toolsets:
+      - computer_use
+      - image_gen
+      - kanban
+      - spotify
+plugins:
+  enabled: []
+mcp:
+  prefer_native_web: true
+  allow:
+    - obsidian
+skills_policy: research_and_notes

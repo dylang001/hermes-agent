@@ -10,11 +10,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from utils import safe_json_loads
 from agent.tool_result_classification import file_mutation_result_landed
+
+# Absolute paths embedded in terminal commands / file tool args.
+_ABS_PATH_RE = re.compile(r"(?<![\w.-])(/(?:root|opt|usr|home|var|tmp)[^\s;'\"`|&<>]*)")
+_MISSING_PATH_MARKERS = (
+    "no such file or directory",
+    "cannot access",
+    "permission denied",
+    "not a directory",
+    "is a directory",
+)
 
 
 IDEMPOTENT_TOOL_NAMES = frozenset(
@@ -75,6 +86,11 @@ class ToolCallGuardrailConfig:
     exact_failure_block_after: int = 5
     same_tool_failure_warn_after: int = 3
     same_tool_failure_halt_after: int = 8
+    # Equivalent missing-path / same-target retries (syntactically different
+    # commands that still probe the same dead path). Default 2 — far below the
+    # generic same_tool_failure halt — so stale /root probes stop immediately.
+    equivalent_failure_warn_after: int = 1
+    equivalent_failure_halt_after: int = 2
     no_progress_warn_after: int = 2
     no_progress_block_after: int = 5
     idempotent_tools: frozenset[str] = field(default_factory=lambda: IDEMPOTENT_TOOL_NAMES)
@@ -116,6 +132,14 @@ class ToolCallGuardrailConfig:
             same_tool_failure_halt_after=_positive_int(
                 hard_stop_after.get("same_tool_failure", data.get("same_tool_failure_halt_after")),
                 defaults.same_tool_failure_halt_after,
+            ),
+            equivalent_failure_warn_after=_positive_int(
+                warn_after.get("equivalent_failure", data.get("equivalent_failure_warn_after")),
+                defaults.equivalent_failure_warn_after,
+            ),
+            equivalent_failure_halt_after=_positive_int(
+                hard_stop_after.get("equivalent_failure", data.get("equivalent_failure_halt_after")),
+                defaults.equivalent_failure_halt_after,
             ),
             no_progress_block_after=_positive_int(
                 hard_stop_after.get("idempotent_no_progress", data.get("no_progress_block_after")),
@@ -231,6 +255,7 @@ class ToolCallGuardrailController:
     def reset_for_turn(self) -> None:
         self._exact_failure_counts: dict[ToolCallSignature, int] = {}
         self._same_tool_failure_counts: dict[str, int] = {}
+        self._equivalent_failure_counts: dict[str, int] = {}
         self._no_progress: dict[ToolCallSignature, tuple[str, int]] = {}
         self._halt_decision: ToolGuardrailDecision | None = None
 
@@ -239,7 +264,8 @@ class ToolCallGuardrailController:
         return self._halt_decision
 
     def before_call(self, tool_name: str, args: Mapping[str, Any] | None) -> ToolGuardrailDecision:
-        signature = ToolCallSignature.from_call(tool_name, _coerce_args(args))
+        args = _coerce_args(args)
+        signature = ToolCallSignature.from_call(tool_name, args)
         if not self.config.hard_stop_enabled:
             return ToolGuardrailDecision(tool_name=tool_name, signature=signature)
 
@@ -259,6 +285,27 @@ class ToolCallGuardrailController:
             )
             self._halt_decision = decision
             return decision
+
+        eq_key = equivalent_failure_key(tool_name, args)
+        if eq_key is not None:
+            eq_count = self._equivalent_failure_counts.get(eq_key, 0)
+            if eq_count >= self.config.equivalent_failure_halt_after:
+                decision = ToolGuardrailDecision(
+                    action="block",
+                    code="equivalent_path_failure_block",
+                    message=(
+                        f"Blocked {tool_name}: equivalent probes of the same missing "
+                        f"path failed {eq_count} times (key={eq_key}). Do not retry "
+                        "with cosmetic command changes (pwd/echo/ls variations). "
+                        "Inspect authoritative runtime roots, use a different path "
+                        "or tool, or report the blocker."
+                    ),
+                    tool_name=tool_name,
+                    count=eq_count,
+                    signature=signature,
+                )
+                self._halt_decision = decision
+                return decision
 
         if self._is_idempotent(tool_name):
             record = self._no_progress.get(signature)
@@ -303,6 +350,36 @@ class ToolCallGuardrailController:
             same_count = self._same_tool_failure_counts.get(tool_name, 0) + 1
             self._same_tool_failure_counts[tool_name] = same_count
 
+            eq_key = None
+            eq_count = 0
+            if looks_like_missing_path_failure(result):
+                eq_key = equivalent_failure_key(tool_name, args)
+                if eq_key is not None:
+                    eq_count = self._equivalent_failure_counts.get(eq_key, 0) + 1
+                    self._equivalent_failure_counts[eq_key] = eq_count
+
+            if (
+                self.config.hard_stop_enabled
+                and eq_key is not None
+                and eq_count >= self.config.equivalent_failure_halt_after
+            ):
+                decision = ToolGuardrailDecision(
+                    action="halt",
+                    code="equivalent_path_failure_halt",
+                    message=(
+                        f"Stopped {tool_name}: equivalent probes of path target "
+                        f"{eq_key} failed {eq_count} times. Do not retry with "
+                        "syntactically different commands against the same missing "
+                        "path. Use authoritative runtime writable roots, remap stale "
+                        "/root paths to the live deployment, or switch tools."
+                    ),
+                    tool_name=tool_name,
+                    count=eq_count,
+                    signature=signature,
+                )
+                self._halt_decision = decision
+                return decision
+
             if self.config.hard_stop_enabled and same_count >= self.config.same_tool_failure_halt_after:
                 decision = ToolGuardrailDecision(
                     action="halt",
@@ -317,6 +394,20 @@ class ToolCallGuardrailController:
                 )
                 self._halt_decision = decision
                 return decision
+
+            if (
+                self.config.warnings_enabled
+                and eq_key is not None
+                and eq_count >= self.config.equivalent_failure_warn_after
+            ):
+                return ToolGuardrailDecision(
+                    action="warn",
+                    code="equivalent_path_failure_warning",
+                    message=_path_failure_recovery_hint(tool_name, eq_key, eq_count),
+                    tool_name=tool_name,
+                    count=eq_count,
+                    signature=signature,
+                )
 
             if self.config.warnings_enabled and exact_count >= self.config.exact_failure_warn_after:
                 return ToolGuardrailDecision(
@@ -412,15 +503,89 @@ def _tool_failure_recovery_hint(tool_name: str, count: int) -> str:
     )
     if tool_name == "terminal":
         return common + (
-            "For terminal failures, run a small diagnostic such as `pwd && ls -la` "
-            "in the same tool, then try an absolute path, a simpler command, a different "
-            "working directory, or a different tool such as read_file/write_file/patch."
+            "For terminal failures, change strategy: read authoritative runtime roots from "
+            "the system prompt, avoid stale /root paths, and use a different tool "
+            "(read_file/search_files) or a different absolute path under Writable roots. "
+            "Cosmetic retries (pwd/echo/ls variations of the same missing path) are not progress."
         )
     return common + (
         "Try different arguments, a narrower query/path, an absolute path when relevant, "
         "or a different tool that can make progress. If the blocker is external, report "
         "the blocker after one diagnostic attempt instead of repeating the same failing path."
     )
+
+
+def _path_failure_recovery_hint(tool_name: str, eq_key: str, count: int) -> str:
+    """Guidance after the first equivalent missing-path failure."""
+    try:
+        from agent.runtime_metadata import collect_runtime_metadata, remap_stale_paths
+
+        meta = collect_runtime_metadata()
+        remapped = remap_stale_paths(eq_key.split(":", 1)[-1], meta)
+        roots = ", ".join(meta.writable_roots[:6]) or meta.hermes_home
+        return (
+            f"{tool_name} failed {count} time(s) against equivalent path target {eq_key}. "
+            "Do not retry with a syntactically different command against the same path. "
+            f"Authoritative writable roots: {roots}. "
+            f"If this was a stale migration path, try: {remapped}. "
+            "Change strategy: list a writable root, use read_file/search_files, or abandon "
+            "the missing path and report the blocker."
+        )
+    except Exception:
+        return (
+            f"{tool_name} failed {count} time(s) against equivalent path target {eq_key}. "
+            "Do not retry with cosmetic command changes. Inspect authoritative runtime "
+            "roots from the system prompt and choose a different path or tool."
+        )
+
+
+def looks_like_missing_path_failure(result: str | None) -> bool:
+    """True when a tool result indicates a missing/inaccessible filesystem path."""
+    if not result:
+        return False
+    lower = result[:2000].lower()
+    return any(marker in lower for marker in _MISSING_PATH_MARKERS)
+
+
+def extract_absolute_path_targets(tool_name: str, args: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Extract absolute path targets from common tool argument shapes."""
+    args = _coerce_args(args)
+    blobs: list[str] = []
+    if tool_name == "terminal":
+        for key in ("command", "cmd", "working_directory", "cwd"):
+            value = args.get(key)
+            if isinstance(value, str) and value.strip():
+                blobs.append(value)
+    else:
+        for key in ("path", "file_path", "directory", "target", "cwd"):
+            value = args.get(key)
+            if isinstance(value, str) and value.strip():
+                blobs.append(value)
+        command = args.get("command")
+        if isinstance(command, str):
+            blobs.append(command)
+
+    found: list[str] = []
+    seen: set[str] = set()
+    for blob in blobs:
+        for match in _ABS_PATH_RE.findall(blob):
+            cleaned = match.rstrip("/").rstrip(")'\",")
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                found.append(cleaned)
+    return tuple(found)
+
+
+def equivalent_failure_key(tool_name: str, args: Mapping[str, Any] | None) -> str | None:
+    """Stable key for 'same missing path, different command syntax' retries."""
+    targets = extract_absolute_path_targets(tool_name, args)
+    if not targets:
+        return None
+    # Prefer the first /root or migration-stale target; otherwise the first abs path.
+    preferred = next((t for t in targets if t.startswith("/root") or "/hermes" in t), targets[0])
+    # Collapse trailing file vs directory variations of the same stem when obvious.
+    normalized = preferred.rstrip("/")
+    return f"{tool_name}:{normalized}"
 
 
 def _coerce_args(args: Mapping[str, Any] | None) -> Mapping[str, Any]:

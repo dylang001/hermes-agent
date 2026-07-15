@@ -1408,11 +1408,15 @@ DEFAULT_CONFIG = {
             "exact_failure": 2,
             "same_tool_failure": 3,
             "idempotent_no_progress": 2,
+            "equivalent_failure": 1,
         },
         "hard_stop_after": {
             "exact_failure": 5,
             "same_tool_failure": 8,
             "idempotent_no_progress": 5,
+            # Equivalent missing-path probes (ls/pwd/echo variations of the
+            # same dead path) halt after 2 — see agent/tool_guardrails.py.
+            "equivalent_failure": 2,
         },
     },
 

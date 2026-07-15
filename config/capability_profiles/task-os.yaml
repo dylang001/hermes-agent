@@ -1,0 +1,31 @@
+name: task-os
+description: ClickUp Task OS worker profile — poller + Kanban execution.
+platforms:
+  cli:
+    enabled_toolsets:
+      - file
+      - terminal
+      - memory
+      - skills
+      - web
+      - kanban
+      - clarify
+      - todo
+      - delegation
+    disabled_toolsets:
+      - browser
+      - computer_use
+      - image_gen
+      - spotify
+plugins:
+  enabled:
+    - clickup_task_os
+  disabled:
+    - clickup-bridge
+mcp:
+  prefer_native_web: true
+  disable_recommended:
+    - exa
+concurrency:
+  max_in_progress: 2
+skills_policy: task_family_only

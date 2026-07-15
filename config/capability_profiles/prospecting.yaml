@@ -1,0 +1,22 @@
+name: prospecting
+description: Signal detection and outreach prep — approval before send.
+platforms:
+  cli:
+    enabled_toolsets:
+      - file
+      - terminal
+      - memory
+      - skills
+      - session_search
+      - web
+      - clarify
+      - todo
+    disabled_toolsets:
+      - computer_use
+      - kanban
+plugins:
+  enabled: []
+skills_policy: prospecting_gated
+approvals:
+  outbound_email: required
+  crm_write: required

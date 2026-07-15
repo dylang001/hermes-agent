@@ -32,7 +32,7 @@
  *     no UI consumes them yet)
  */
 
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import https from 'node:https'
@@ -545,25 +545,40 @@ function spawnBash(scriptPath, args, { emit, stageName, abortSignal, hermesHome 
 // is fresh-install only: once a managed checkout already exists, bootstrap is
 // a repair/update path and must not let an old packaged app detach the checkout
 // back to the commit baked into that app.
-function buildPinArgs(installStamp, { pinCommit = true } = {}) {
+function buildPinArgs(installStamp, { pinCommit = true, branch = null } = {}) {
   const args = []
+
+  // Fresh installs may pin commit + branch from the packaged stamp. Repair /
+  // update of an EXISTING checkout must not forcibly switch branches — that
+  // jumps production/feature worktrees onto the stamp's old branch (seen:
+  // phase1 → hermes-latest-main-integration). When `branch` is provided
+  // (current HEAD of the existing checkout), keep the user on that branch.
+  const resolvedBranch = branch || (pinCommit && installStamp ? installStamp.branch : null)
 
   if (pinCommit && installStamp && installStamp.commit) {
     args.push('-Commit', installStamp.commit)
   }
 
-  if (installStamp && installStamp.branch) {
-    args.push('-Branch', installStamp.branch)
+  if (resolvedBranch) {
+    args.push('-Branch', resolvedBranch)
   }
 
   return args
 }
 
-function buildPosixPinArgs({ installStamp, activeRoot, hermesHome, pinCommit = true }) {
+function buildPosixPinArgs({
+  installStamp,
+  activeRoot,
+  hermesHome,
+  pinCommit = true,
+  branch = null
+} = {}) {
   const args = ['--dir', activeRoot, '--hermes-home', hermesHome]
 
-  if (installStamp && installStamp.branch) {
-    args.push('--branch', installStamp.branch)
+  const resolvedBranch = branch || (pinCommit && installStamp ? installStamp.branch : null)
+
+  if (resolvedBranch) {
+    args.push('--branch', resolvedBranch)
   }
 
   if (pinCommit && installStamp && installStamp.commit) {
@@ -573,6 +588,29 @@ function buildPosixPinArgs({ installStamp, activeRoot, hermesHome, pinCommit = t
   return args
 }
 
+function resolveExistingCheckoutBranch(activeRoot) {
+  if (!activeRoot) {
+    return null
+  }
+
+  try {
+    const out = execFileSync('git', ['-C', String(activeRoot), 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5_000
+    })
+    const branch = String(out || '').trim()
+
+    if (!branch || branch === 'HEAD') {
+      return null
+    }
+
+    return branch
+  } catch {
+    return null
+  }
+}
+
 async function fetchManifest({
   scriptPath,
   installerKind,
@@ -580,13 +618,14 @@ async function fetchManifest({
   hermesHome,
   activeRoot,
   installStamp,
-  pinCommit
+  pinCommit,
+  branch = null
 }) {
   const isPosix = installerKind === 'posix'
 
   const args = isPosix
-    ? ['--manifest', ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome, pinCommit })]
-    : ['-Manifest', ...buildPinArgs(installStamp, { pinCommit })]
+    ? ['--manifest', ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome, pinCommit, branch })]
+    : ['-Manifest', ...buildPinArgs(installStamp, { pinCommit, branch })]
 
   const result = await (isPosix ? spawnBash : spawnPowerShell)(scriptPath, args, {
     emit,
@@ -652,7 +691,8 @@ async function runStage({
   activeRoot,
   abortSignal,
   installStamp,
-  pinCommit
+  pinCommit,
+  branch = null
 }) {
   const startedAt = Date.now()
   emit({ type: 'stage', name: stage.name, state: 'running' })
@@ -665,9 +705,9 @@ async function runStage({
         stage.name,
         '--non-interactive',
         '--json',
-        ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome, pinCommit })
+        ...buildPosixPinArgs({ installStamp, activeRoot, hermesHome, pinCommit, branch })
       ]
-    : ['-Stage', stage.name, '-NonInteractive', '-Json', ...buildPinArgs(installStamp, { pinCommit })]
+    : ['-Stage', stage.name, '-NonInteractive', '-Json', ...buildPinArgs(installStamp, { pinCommit, branch })]
 
   const result = await (isPosix ? spawnBash : spawnPowerShell)(scriptPath, args, {
     emit,
@@ -807,13 +847,17 @@ async function runBootstrap(opts) {
   try {
     const existingCheckout = hasExistingGitCheckout(activeRoot)
     const pinCommit = !existingCheckout
+    // Preserve the user's current branch on repair/update; never force the
+    // packaged app's stamp branch onto an existing checkout.
+    const branch = existingCheckout ? resolveExistingCheckoutBranch(activeRoot) : null
 
     if (existingCheckout && installStamp && installStamp.commit) {
       emit({
         type: 'log',
         line:
-          `[bootstrap] existing checkout detected at ${activeRoot}; ` +
-          `not pinning to packaged install stamp ${installStamp.commit.slice(0, 12)}`
+          `[bootstrap] existing checkout detected at ${activeRoot}` +
+          (branch ? ` on branch ${branch}` : '') +
+          `; not pinning to packaged install stamp ${installStamp.commit.slice(0, 12)}`
       })
     }
 
@@ -829,7 +873,8 @@ async function runBootstrap(opts) {
       hermesHome,
       activeRoot,
       installStamp,
-      pinCommit
+      pinCommit,
+      branch
     })
 
     emit({
@@ -858,7 +903,8 @@ async function runBootstrap(opts) {
         activeRoot,
         abortSignal,
         installStamp,
-        pinCommit
+        pinCommit,
+        branch
       })
 
       if (ev.state === 'failed') {
@@ -869,9 +915,12 @@ async function runBootstrap(opts) {
     }
 
     // 4. Write the bootstrap-complete marker.
+    // Prefer the live checkout identity over the packaged stamp when repairing
+    // an existing install — otherwise a later Desktop bootstrap thinks the
+    // stamp branch is canonical and can jump the checkout again.
     const markerPayload = {
-      pinnedCommit: installStamp ? installStamp.commit : null,
-      pinnedBranch: installStamp ? installStamp.branch : null
+      pinnedCommit: pinCommit && installStamp ? installStamp.commit : null,
+      pinnedBranch: branch || (pinCommit && installStamp ? installStamp.branch : null)
     }
 
     const marker = typeof writeMarker === 'function' ? writeMarker(markerPayload) : markerPayload

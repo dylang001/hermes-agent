@@ -4,6 +4,7 @@ import fs from 'node:fs'
 // backend announces HERMES_DASHBOARD_READY. Accept either so the desktop spawn
 // works against both the headless backend and old/dashboard runtimes.
 const _READY_RE = /^HERMES_(?:BACKEND|DASHBOARD)_READY port=(\d+)/m
+const _READY_SEARCH_RE = /HERMES_(?:BACKEND|DASHBOARD)_READY port=(\d+)/
 
 // The announcement clock starts the instant the backend process is spawned —
 // before uvicorn binds its socket. On a cold install the child must first
@@ -35,7 +36,7 @@ function resolvePortAnnounceTimeoutMs(env = process.env) {
 }
 
 /**
- * Watch a child process's stdout for the `HERMES_(BACKEND|DASHBOARD)_READY
+ * Watch a child process's stdout/stderr for the `HERMES_(BACKEND|DASHBOARD)_READY
  * port=<N>` line that web_server.py prints after uvicorn binds its socket.
  *
  * Returns the parsed port. Rejects if:
@@ -63,7 +64,8 @@ function waitForDashboardPort(child, timeoutMs = resolvePortAnnounceTimeoutMs())
 
       done = true
       clearTimeout(timer)
-      child.stdout.off('data', onData)
+      child.stdout?.off?.('data', onData)
+      child.stderr?.off?.('data', onData)
       child.off('exit', onExit)
       child.off('error', onError)
     }
@@ -73,9 +75,15 @@ function waitForDashboardPort(child, timeoutMs = resolvePortAnnounceTimeoutMs())
       let nl
 
       while ((nl = buf.indexOf('\n')) !== -1) {
-        const line = buf.slice(0, nl)
+        // Strip CR / ANSI so a ProgressFrame or Windows CRLF can't hide the
+        // ready token; also search inside the line in case a launcher prefixes
+        // it (some wrapper paths echo "[hermes] HERMES_BACKEND_READY …").
+        const line = buf
+          .slice(0, nl)
+          .replace(/\r/g, '')
+          .replace(/\u001b\[[0-9;]*m/g, '')
         buf = buf.slice(nl + 1)
-        const m = line.match(_READY_RE)
+        const m = line.match(_READY_RE) || line.match(_READY_SEARCH_RE)
 
         if (m) {
           cleanup()
@@ -101,7 +109,11 @@ function waitForDashboardPort(child, timeoutMs = resolvePortAnnounceTimeoutMs())
       reject(new Error(`Timed out waiting for Hermes backend port announcement (${timeoutMs}ms)`))
     }, timeoutMs)
 
-    child.stdout.on('data', onData)
+    // Listen on BOTH pipes — rememberLog already does, and some launcher
+    // wrappers re-route the ready print onto stderr. Missing stderr was one
+    // cause of "READY in the log, wait timed out".
+    child.stdout?.on?.('data', onData)
+    child.stderr?.on?.('data', onData)
     child.on('exit', onExit)
     child.on('error', onError)
   })
@@ -131,14 +143,12 @@ function waitForDashboardReadyFile(readyFile, child, timeoutMs = resolvePortAnno
       if (done) {
         return
       }
-
       done = true
       clearTimeout(timer)
 
       if (interval) {
         clearInterval(interval)
       }
-
       child.off('exit', onExit)
       child.off('error', onError)
     }
@@ -174,7 +184,6 @@ function waitForDashboardReadyFile(readyFile, child, timeoutMs = resolvePortAnno
     if (typeof interval.unref === 'function') {
       interval.unref()
     }
-
     check()
   })
 }

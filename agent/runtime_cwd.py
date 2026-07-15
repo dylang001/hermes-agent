@@ -37,17 +37,27 @@ def _session_cwd_override() -> str:
 
 
 def resolve_agent_cwd() -> Path:
+    from agent.path_boundary import path_is_usable_dir, sanitize_cwd
+
     override = _session_cwd_override()
     if override:
         p = Path(override).expanduser()
-        if p.is_dir():
+        if path_is_usable_dir(p):
             return p
+        return Path(sanitize_cwd(p))
     raw = os.environ.get("TERMINAL_CWD", "").strip()
     if raw:
         p = Path(raw).expanduser()
-        if p.is_dir():
+        if path_is_usable_dir(p):
             return p
-    return Path(os.getcwd())
+        return Path(sanitize_cwd(p))
+    try:
+        cwd = Path(os.getcwd())
+    except OSError:
+        return Path(sanitize_cwd(None))
+    if path_is_usable_dir(cwd):
+        return cwd
+    return Path(sanitize_cwd(cwd))
 
 
 def resolve_context_cwd() -> Path | None:
@@ -55,8 +65,14 @@ def resolve_context_cwd() -> Path | None:
     # to the launch dir (os.getcwd()) — correct for the local CLI. The gateway
     # avoids slurping its install dir by setting TERMINAL_CWD (see system_prompt.py)
     # or, per session, the _SESSION_CWD contextvar above.
+    from agent.path_boundary import path_is_usable_dir, sanitize_cwd
+
     override = _session_cwd_override()
     if override:
-        return Path(override).expanduser()
+        p = Path(override).expanduser()
+        return Path(sanitize_cwd(p)) if not path_is_usable_dir(p) else p
     raw = os.environ.get("TERMINAL_CWD", "").strip()
-    return Path(raw).expanduser() if raw else None
+    if not raw:
+        return None
+    p = Path(raw).expanduser()
+    return Path(sanitize_cwd(p)) if not path_is_usable_dir(p) else p

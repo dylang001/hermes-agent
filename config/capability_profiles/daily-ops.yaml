@@ -1,0 +1,45 @@
+name: daily-ops
+description: Default chat — capture, status, approvals, light research.
+platforms:
+  cli:
+    enabled_toolsets:
+      - file
+      - terminal
+      - memory
+      - skills
+      - session_search
+      - web
+      - clarify
+      - todo
+      - delegation
+    disabled_toolsets:
+      - browser
+      - computer_use
+      - homeassistant
+      - spotify
+      - image_gen
+      - video
+      - kanban
+  telegram:
+    enabled_toolsets:
+      - file
+      - terminal
+      - memory
+      - skills
+      - session_search
+      - web
+      - clarify
+      - todo
+    disabled_toolsets:
+      - browser
+      - computer_use
+      - kanban
+      - image_gen
+plugins:
+  enabled: []
+  note: keep clickup-bridge if already enabled; never enable clickup_task_os here
+mcp:
+  prefer_native_web: true
+  disable_recommended:
+    - exa
+skills_policy: discovery_and_approved_only

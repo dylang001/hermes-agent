@@ -1,0 +1,28 @@
+name: engineering
+description: Code, git, tests, PRs.
+platforms:
+  cli:
+    enabled_toolsets:
+      - file
+      - terminal
+      - memory
+      - skills
+      - session_search
+      - web
+      - code_execution
+      - clarify
+      - todo
+      - delegation
+    disabled_toolsets:
+      - browser
+      - computer_use
+      - image_gen
+      - spotify
+      - kanban
+plugins:
+  enabled: []
+mcp:
+  prefer_native_web: true
+skills_policy: engineering_and_github
+requires:
+  - GITHUB_TOKEN or gh auth

@@ -34,6 +34,10 @@ import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { buildDesktopBackendEnv, normalizeHermesHomeRoot } from './backend-env'
 import { canImportHermesCli, verifyHermesCli } from './backend-probes'
 import { waitForDashboardPortAnnouncement } from './backend-ready'
+import {
+  backendStartOwnership,
+  shouldIgnoreAbandonedBackendStart
+} from './backend-start-ownership'
 import { detectRemoteDisplay, isWindowsBinaryPathInWsl, isWslEnvironment } from './bootstrap-platform'
 import { runBootstrap } from './bootstrap-runner'
 import {
@@ -3007,17 +3011,23 @@ function readBootstrapMarker() {
 // ever having written the bootstrap marker -- so we must be able to recognise
 // "already installed" off the filesystem alone, not just the marker.
 function isActiveRuntimeUsable() {
-  const venvPython = getVenvPython(VENV_ROOT)
+  if (!isHermesSourceRoot(ACTIVE_HERMES_ROOT)) {
+    return false
+  }
 
-  return (
-    isHermesSourceRoot(ACTIVE_HERMES_ROOT) &&
-    fileExists(venvPython) &&
-    canImportHermesCli(venvPython, {
-      env: {
-        PYTHONPATH: [ACTIVE_HERMES_ROOT, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
-      }
-    })
-  )
+  const probeEnv = {
+    PYTHONPATH: [ACTIVE_HERMES_ROOT, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+  }
+
+  for (const venvRoot of [VENV_ROOT, path.join(ACTIVE_HERMES_ROOT, '.venv')]) {
+    const venvPython = getVenvPython(venvRoot)
+
+    if (fileExists(venvPython) && canImportHermesCli(venvPython, { env: probeEnv })) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function isBootstrapComplete() {
@@ -3258,6 +3268,41 @@ function createPythonBackend(root, label, backendArgs, options: any = {}) {
 // VENV_ROOT may not exist yet on first run; bootstrap=true tells
 // ensureRuntime() to create / refresh it before launch.
 function createActiveBackend(backendArgs) {
+  // Prefer the managed `venv/` layout, but fall back to `.venv/` (uv / developer
+  // checkouts). A half-built `venv/` that exists but cannot import hermes_cli
+  // previously forced Desktop into a destructive bootstrap loop.
+  const candidates = [
+    { root: VENV_ROOT, python: getVenvPython(VENV_ROOT) },
+    {
+      root: path.join(ACTIVE_HERMES_ROOT, '.venv'),
+      python: getVenvPython(path.join(ACTIVE_HERMES_ROOT, '.venv'))
+    }
+  ]
+
+  for (const candidate of candidates) {
+    if (
+      fileExists(candidate.python) &&
+      canImportHermesCli(candidate.python, {
+        env: { PYTHONPATH: ACTIVE_HERMES_ROOT }
+      })
+    ) {
+      return {
+        kind: 'python',
+        label: `Hermes at ${ACTIVE_HERMES_ROOT}`,
+        command: candidate.python,
+        args: ['-m', 'hermes_cli.main', ...backendArgs],
+        env: buildDesktopBackendEnv({
+          hermesHome: HERMES_HOME,
+          pythonPathEntries: [ACTIVE_HERMES_ROOT, ...getVenvSitePackagesEntries(candidate.root)],
+          venvRoot: candidate.root
+        }),
+        root: ACTIVE_HERMES_ROOT,
+        bootstrap: true,
+        shell: false
+      }
+    }
+  }
+
   const venvPython = getVenvPython(VENV_ROOT)
   const command = fileExists(venvPython) ? venvPython : findSystemPython()
 
@@ -6689,7 +6734,12 @@ async function startHermes() {
     return connectionPromise
   }
 
-  connectionPromise = (async () => {
+  // Captured by exit/error/catch handlers so a dying local child from a soft
+  // re-home (or a raced reconnect) cannot wipe a newer remote connectionPromise
+  // or latch "Desktop boot failed (SIGKILL)" over a healthy remote session.
+  let ownedPromise: Promise<any> | null = null
+
+  const run = (async () => {
     await advanceBootProgress('backend.resolve', 'Resolving Hermes backend', 8)
     // Resolve for the desktop's primary profile so a per-profile remote
     // override on the active profile is honored (falls back to env / global).
@@ -6698,6 +6748,7 @@ async function startHermes() {
     if (remote) {
       await advanceBootProgress('backend.remote', `Connecting to remote Hermes backend at ${remote.baseUrl}`, 24)
       await waitForHermes(remote.baseUrl, remote.token)
+      backendStartFailure = null
       updateBootProgress({
         phase: 'backend.ready',
         message: 'Remote Hermes backend is ready',
@@ -6716,6 +6767,16 @@ async function startHermes() {
         logs: hermesLog.slice(-80),
         ...getWindowState()
       }
+    }
+
+    // Remote mode must never fall through to a local spawn — a signed-out or
+    // mis-resolved remote should surface as a remotespecific error, not start
+    // a local serve that races soft reconnect/SIGKILL.
+    if (globalRemoteActive()) {
+      throw new Error(
+        'Remote Hermes gateway is configured but could not be resolved. ' +
+          'Open Settings → Gateway and click "Sign in", or switch back to Local.'
+      )
     }
 
     // Mutual exclusion with an in-app update (#50238). If this instance was
@@ -6751,7 +6812,7 @@ async function startHermes() {
     await advanceBootProgress('backend.spawn', `Starting Hermes backend via ${backend.label}`, 84)
     rememberLog(`Starting Hermes backend via ${backend.label}`)
 
-    hermesProcess = spawn(
+    const child = spawn(
       backend.command,
       backend.args,
       hiddenWindowsChildOptions({
@@ -6781,8 +6842,9 @@ async function startHermes() {
       })
     )
 
-    hermesProcess.stdout.on('data', rememberLog)
-    hermesProcess.stderr.on('data', rememberLog)
+    hermesProcess = child
+    child.stdout.on('data', rememberLog)
+    child.stderr.on('data', rememberLog)
     let backendReady = false
     let rejectBackendStart = null
 
@@ -6790,39 +6852,80 @@ async function startHermes() {
       rejectBackendStart = reject
     })
 
-    hermesProcess.once('error', error => {
-      rememberLog(`Hermes backend failed to start: ${error.message}`)
-      updateBootProgress(
-        {
-          error: error.message,
-          message: `Hermes backend failed to start: ${error.message}`,
-          phase: 'backend.error',
-          running: false
-        },
-        { allowDecrease: true }
+    const abandonLocalStart = () =>
+      shouldIgnoreAbandonedBackendStart(
+        backendStartOwnership({
+          hermesProcess,
+          child,
+          connectionPromise,
+          ownedPromise
+        })
       )
-      hermesProcess = null
-      connectionPromise = null
-      sendBackendExit({ code: null, signal: null, error: error.message })
-      rejectBackendStart?.(error)
-    })
-    hermesProcess.once('exit', (code, signal) => {
-      rememberLog(`Hermes backend exited (${signal || code})`)
-      hermesProcess = null
-      connectionPromise = null
-      sendBackendExit({ code, signal })
 
-      if (!backendReady) {
-        const message = `Hermes backend exited before it became ready (${signal || code}).`
+    child.once('error', error => {
+      rememberLog(`Hermes backend failed to start: ${error.message}`)
+      const ownership = backendStartOwnership({
+        hermesProcess,
+        child,
+        connectionPromise,
+        ownedPromise
+      })
+
+      if (ownership.ownsProcess) {
+        hermesProcess = null
+      }
+
+      if (ownership.ownsConnection) {
+        connectionPromise = null
         updateBootProgress(
           {
-            error: message,
-            message,
+            error: error.message,
+            message: `Hermes backend failed to start: ${error.message}`,
             phase: 'backend.error',
             running: false
           },
           { allowDecrease: true }
         )
+        sendBackendExit({ code: null, signal: null, error: error.message })
+      }
+
+      rejectBackendStart?.(error)
+    })
+    child.once('exit', (code, signal) => {
+      rememberLog(`Hermes backend exited (${signal || code})`)
+      const ownership = backendStartOwnership({
+        hermesProcess,
+        child,
+        connectionPromise,
+        ownedPromise
+      })
+
+      if (ownership.ownsProcess) {
+        hermesProcess = null
+      }
+
+      if (ownership.ownsConnection) {
+        connectionPromise = null
+        sendBackendExit({ code, signal })
+      }
+
+      if (!backendReady) {
+        const message = `Hermes backend exited before it became ready (${signal || code}).`
+
+        // Abandoned after soft re-home / remote reconnect — reject the old
+        // waiters but do not paint boot failure over the newer connection.
+        if (!abandonLocalStart()) {
+          updateBootProgress(
+            {
+              error: message,
+              message,
+              phase: 'backend.error',
+              running: false
+            },
+            { allowDecrease: true }
+          )
+        }
+
         rejectBackendStart?.(
           new Error(
             `Hermes backend exited before it became ready (${signal || code}). Log: ${DESKTOP_LOG_PATH}\n${recentHermesLog()}`
@@ -6831,16 +6934,13 @@ async function startHermes() {
       }
     })
 
-    // Subscribe before the first await after spawn. A warm local backend can
-    // bind and announce its ephemeral port while the boot-progress renderer
-    // update is in flight; attaching below that yield loses the one-shot
-    // stdout line and leaves Desktop waiting until the 90s timeout.
-    const portAnnouncement = waitForDashboardPortAnnouncement(hermesProcess, { readyFile })
-
     await advanceBootProgress('backend.port', 'Waiting for Hermes backend to launch', 86)
 
     // Discover the ephemeral port the child bound to
-    const port = await Promise.race([portAnnouncement, backendStartFailed])
+    const port = await Promise.race([
+      waitForDashboardPortAnnouncement(child, { readyFile }),
+      backendStartFailed
+    ])
 
     if (readyFile) {
       fs.unlink(readyFile, () => {})
@@ -6854,7 +6954,7 @@ async function startHermes() {
 
     const authToken = await adoptServedDashboardToken(baseUrl, token, {
       // The exit/error handlers null hermesProcess when the child dies.
-      childAlive: () => hermesProcess !== null && hermesProcess.exitCode === null && !hermesProcess.killed,
+      childAlive: () => hermesProcess === child && hermesProcess.exitCode === null && !hermesProcess.killed,
       rememberLog
     })
 
@@ -6876,7 +6976,15 @@ async function startHermes() {
       logs: hermesLog.slice(-80),
       ...getWindowState()
     }
-  })().catch(error => {
+  })()
+
+  ownedPromise = run.catch(error => {
+    // Superseded by a newer startHermes (soft re-home / remote reconnect): do
+    // not latch backendStartFailure or clear the newer connectionPromise.
+    if (connectionPromise !== ownedPromise) {
+      throw error
+    }
+
     const message = error instanceof Error ? error.message : String(error)
     backendStartFailure = error instanceof Error ? error : new Error(message)
     updateBootProgress(
@@ -6891,6 +6999,8 @@ async function startHermes() {
     connectionPromise = null
     throw error
   })
+
+  connectionPromise = ownedPromise
 
   return connectionPromise
 }
@@ -7587,10 +7697,16 @@ ipcMain.handle('hermes:connection-config:oauth-login', async (_event, rawUrl) =>
   // remote config with authMode='oauth' first, then calls this. We normalize
   // the URL defensively so a login can be driven from a raw URL too.
   const baseUrl = normalizeRemoteBaseUrl(rawUrl)
+  // Clear any half-dead AT/RT / PKCE cookies first. Reusing a partition that
+  // already completed (or half-failed) an auth-code exchange produces Portal
+  // `invalid_grant` on the next Sign in after cutover / session expiry.
+  await clearOauthSession(baseUrl)
+  await clearOauthSession(resolvePortalBaseUrl())
   await openOauthLoginWindow(baseUrl)
 
   return { ok: true, baseUrl, connected: await hasOauthSessionCookie(baseUrl) }
 })
+
 ipcMain.handle('hermes:connection-config:oauth-logout', async (_event, rawUrl) => {
   const baseUrl = rawUrl ? normalizeRemoteBaseUrl(rawUrl) : ''
   await clearOauthSession(baseUrl || undefined)

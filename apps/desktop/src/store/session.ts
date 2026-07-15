@@ -41,7 +41,21 @@ function workspaceCwdKey(connection: HermesConnection | null = $connection.get()
   return `${WORKSPACE_CWD_KEY}.remote.${base}.${profile}`
 }
 
-export const getRememberedWorkspaceCwd = (): string => storedString(workspaceCwdKey())?.trim() || ''
+/** Reject migration-stale remote cwds that Desktop may have remembered as root. */
+export function sanitizeRememberedWorkspaceCwd(cwd: string): string {
+  const trimmed = cwd.trim()
+  if (!trimmed) return ''
+  // Exact /root or anything under /root is never a valid remote workspace for
+  // the dylan/opt/hermes deployment (Permission denied on /root/.git).
+  if (trimmed === '/root' || trimmed.startsWith('/root/')) return ''
+  if (trimmed === '/usr/local/lib/hermes-agent' || trimmed.startsWith('/usr/local/lib/hermes-agent/')) {
+    return ''
+  }
+  return trimmed
+}
+
+export const getRememberedWorkspaceCwd = (): string =>
+  sanitizeRememberedWorkspaceCwd(storedString(workspaceCwdKey())?.trim() || '')
 export type NewChatWorkspaceTarget = null | string | undefined
 
 export const getConfiguredDefaultProjectDir = (): string => configuredDefaultProjectDir
@@ -353,7 +367,10 @@ export const setNewChatWorkspaceTarget = (next: NewChatWorkspaceTarget): number 
 
 export const workspaceCwdForNewSession = (): string => {
   if ($connection.get()?.mode === 'remote') {
-    return getRememberedWorkspaceCwd()
+    const remembered = getRememberedWorkspaceCwd()
+    // Empty remembered (or sanitized-away /root) → let the gateway choose
+    // /opt/hermes/app via _completion_cwd / preferred_fallback_cwd.
+    return remembered
   }
 
   // A bare new chat starts DETACHED — no inherited cwd, so the composer's coding

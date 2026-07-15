@@ -165,6 +165,13 @@ def sanitize_context(text: str) -> str:
     text = _INTERNAL_CONTEXT_RE.sub('', text)
     text = _INTERNAL_NOTE_RE.sub('', text)
     text = _FENCE_TAG_RE.sub('', text)
+    # Recalled Mem0/session facts must not override post-migration runtime paths.
+    try:
+        from agent.runtime_metadata import remap_stale_paths
+
+        text = remap_stale_paths(text)
+    except Exception:
+        pass
     return text
 
 
@@ -343,8 +350,10 @@ def build_memory_context_block(raw_context: str) -> str:
     return (
         "<memory-context>\n"
         "[System note: The following is recalled memory context, "
-        "NOT new user input. Treat as authoritative reference data — "
-        "this is the agent's persistent memory and should inform all responses.]\n\n"
+        "NOT new user input. Treat as reference data. If any path conflicts "
+        "with the authoritative runtime block in the system prompt "
+        "(App root / HERMES_HOME / Writable roots), the system prompt wins — "
+        "do not probe stale /root migration paths.]\n\n"
         f"{clean}\n"
         "</memory-context>"
     )

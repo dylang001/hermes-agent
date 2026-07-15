@@ -19,8 +19,11 @@ When sources conflict, resolve against the highest-confidence source quietly and
 - historical/sparse local placeholder: `/Users/dylanangloher/Documents/Hermes`
 - VPS production checkout: `/opt/hermes/app` (branch `hermes-phase1-approved`; approved SHA recorded in `HERMES_PROTECTED_OPTIMIZATIONS_AUDIT.md`)
 - VPS state/config home: `/opt/hermes/home`
+- VPS service user: `dylan` (not root)
+- Live audit dir: `/opt/hermes/app/audit`
+- Obsidian Growth OS (VPS): `/opt/hermes/data/obsidian/Growth OS` (MCP must mount this; `/root/obsidian-vault` is stale)
 - Legacy path `/usr/local/lib/hermes-agent` is stale — do not treat as current
-- Obsidian filesystem MCP path on VPS: verify live; historically `/root/obsidian-vault`
+- Legacy `/root/.hermes` and `/root/audit` are stale — do not probe from `dylan` sessions
 
 ## VPS Runtime
 
