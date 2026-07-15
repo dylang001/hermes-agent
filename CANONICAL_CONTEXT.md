@@ -93,7 +93,7 @@ Ops Task OS mapping re-verified live on July 15, 2026:
 ## Historical Facts To Avoid
 
 - Do not treat `/Users/dylanangloher/Documents/Hermes` as the implementation checkout without re-verifying.
-- Do not treat `http://212.86.105.178:9119` as the current Desktop remote URL.
+- Desktop remote URL is `https://hermes.meetlyra.live` (host `hermes-production` / `138.128.247.49`). Do not use retired/direct-IP Desktop URLs.
 - Do not treat `/root/.hermes/worktrees/*` paths as current runtime state without active process/branch evidence.
 - Do not report configured Zoho MCP endpoints as active solely because config or token files exist.
 - Do not run old memory helper scripts unless current docs/config explicitly require them.

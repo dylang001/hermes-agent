@@ -19,6 +19,13 @@ from plugins.clickup_task_os.config import (
 from plugins.clickup_task_os.eligibility import is_dispatch_eligible
 from plugins.clickup_task_os.safety import detect_high_risk
 
+try:
+    from agent.capability_gap import build_gap_report
+    from agent.skill_discovery import propose_discovery
+except Exception:  # pragma: no cover
+    build_gap_report = None  # type: ignore
+    propose_discovery = None  # type: ignore
+
 
 @dataclass
 class PollResult:
@@ -88,6 +95,11 @@ class TaskOsPoller:
             except Exception as exc:  # noqa: BLE001
                 result.errors.append(f"{task.id}:{exc}")
                 traceback.print_exc()
+                try:
+                    guidance = _failure_guidance(task.name, exc)
+                    self.client.add_comment(task.id, _hermes_marker(guidance))
+                except Exception:  # noqa: BLE001
+                    pass
         return result
 
     def _claim_and_run(self, preview: ClickUpTask) -> Dict[str, Any]:
@@ -195,6 +207,9 @@ class TaskOsPoller:
             comment += "\n\nEvidence:\n" + "\n".join(f"- {e}" for e in evidence)
         if blockers:
             comment += "\n\nBlockers:\n" + "\n".join(f"- {b}" for b in blockers)
+        gap_md = worker_out.get("capability_gap_markdown")
+        if gap_md:
+            comment += "\n\n" + str(gap_md).strip()
         if worker_out.get("approval_required"):
             comment += "\n\nAPPROVAL REQUIRED — no public/side-effect action was taken."
             self.client.ensure_tags(task_id, [tag_name(self.cfg, "approval_required")])
@@ -216,6 +231,33 @@ class TaskOsPoller:
                     "Blocked automatic Done. Phase 1 always lands in Review for human close."
                 ),
             )
+
+
+def _failure_guidance(task_name: str, exc: BaseException) -> str:
+    """Thin Task OS failure annotation via capability_gap + skill_discovery."""
+    parts: List[str] = [f"Poller exception: {exc}"]
+    if build_gap_report is not None:
+        report = build_gap_report(
+            requested_outcome=f"Execute ClickUp Task OS work item: {task_name}",
+            missing_capability=f"task_os_poller_failure:{type(exc).__name__}",
+            alternatives_checked=["retry_poll", "manual_ready_tag_check", "kanban_lock"],
+            recommended=["hermes task-os poll --dry-run", "installed skills via propose_discovery"],
+            installation_risk="low",
+            engineering_required=False,
+            notes=str(exc)[:500],
+        )
+        parts.append(report.to_markdown())
+    if propose_discovery is not None:
+        proposal = propose_discovery(task_name)
+        matches = proposal.get("installed_matches") or []
+        match_lines = "\n".join(f"- {m}" for m in matches[:5]) or "- (none)"
+        parts.append(
+            "## Skill discovery\n\n"
+            f"**Tags:** {', '.join(proposal.get('task_tags') or []) or '(none)'}\n\n"
+            f"**Installed matches:**\n{match_lines}\n"
+        )
+    return "\n\n".join(parts)
+
 
 
 def build_poller(

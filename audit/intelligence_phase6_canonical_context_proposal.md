@@ -74,7 +74,7 @@ When sources conflict, resolve quietly against the highest-confidence source and
 ## Deprecated Or Historical Facts To Avoid
 
 - Do not assume `/Users/dylanangloher/Documents/Hermes` is the implementation checkout.
-- Do not assume `http://212.86.105.178:9119` is the current Desktop remote URL.
+- Desktop remote URL is `https://hermes.meetlyra.live` on production host `138.128.247.49` only.
 - Do not treat old `/root/.hermes/worktrees/*` directories as current state without checking active process/branch references.
 - Do not report Zoho MCP as active solely because config/token files exist.
 - Do not run old helper scripts such as Supermemory cleanup/flush tools unless current docs/config explicitly require them and Dylan approves.

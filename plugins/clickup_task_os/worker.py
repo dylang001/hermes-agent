@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+try:
+    from agent.capability_gap import build_gap_report
+    from agent.skill_discovery import propose_discovery
+except Exception:  # pragma: no cover
+    build_gap_report = None  # type: ignore
+    propose_discovery = None  # type: ignore
+
 import re
 import subprocess
 from pathlib import Path
@@ -262,6 +269,34 @@ def run_task_os_worker(
     parsed = parse_worker_output(text, approval_required=False)
     parsed["profile"] = profile
     parsed["model"] = executor
+    # Soft-fail enrichment: when waiting/blockers suggest missing capability, attach guidance.
+    if (
+        propose_discovery is not None
+        and str(parsed.get("status")) == "waiting"
+        and (parsed.get("blockers") or [])
+    ):
+        try:
+            discovery = propose_discovery(f"{task.name}\n{task.description}")
+            parsed.setdefault("blockers", []).append(
+                "skill_discovery: " + ", ".join((discovery.get("task_tags") or [])[:6])
+            )
+            matches = discovery.get("installed_matches") or []
+            if matches:
+                parsed.setdefault("evidence", []).append(f"skill_matches:{matches[:3]}")
+            if build_gap_report is not None:
+                gap = build_gap_report(
+                    requested_outcome=task.name,
+                    missing_capability="task_os_waiting_blocker",
+                    alternatives_checked=list(parsed.get("blockers") or [])[:5],
+                    recommended=["review installed skill matches", "escalate to Dylan"],
+                    installation_risk="low",
+                    engineering_required=False,
+                    notes="Auto-attached from capability_gap on waiting outcome",
+                )
+                parsed.setdefault("evidence", []).append("capability_gap_md_present")
+                parsed["capability_gap_markdown"] = gap.to_markdown()
+        except Exception:  # noqa: BLE001
+            pass
     return parsed
 
 
