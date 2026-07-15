@@ -11,7 +11,7 @@ Plugin: `plugins/clickup_task_os/README.md`
 
 ## Gate before Task OS cron
 
-Protected optimizations audit: `HERMES_PROTECTED_OPTIMIZATIONS_AUDIT.md`
+Protected optimizations audit: `audit/HERMES_PROTECTED_OPTIMIZATIONS_AUDIT.md`
 
 - [x] Local + VPS SHA match approved tag `07bdd098c`
 - [x] Intelligence/Telegram policies present; VPS gateway flags ON
