@@ -9,8 +9,8 @@
 
 | Field | Value |
 |-------|--------|
-| Git SHA (full) | _filled after commit_ |
-| Git SHA (short) | _filled after commit_ |
+| Git SHA (full) | 881f1cf4790507d2b4416e90ab0117a1f37546e0 |
+| Git SHA (short) | `881f1cf47` |
 | Tag | `production-2026-07-16` |
 | Branch (Desktop) | `codex/hermes-phase1-upstream-merge-20260715` |
 | VPS branch name | `hermes-phase1-approved` (tracks deployed SHA) |
