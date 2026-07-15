@@ -85,7 +85,7 @@ Observed keys under `gateway:` include `message_timestamps`, `max_inbound_media_
 
 ## Retired host
 
-- Old VPS `212.86.105.178` (`hermes-agent-2025`) decommissioned after archive  
+- Old VPS `212.86.105.178` powered off / decommissioned 2026-07-15 (SSH timeout post-`poweroff -f`). No Kamatera API credentials on Mac for hard delete; cancel remaining bill/delete in Kamatera console if the powered-off server still appears.
 - Archive (secrets redacted): `audit/old-vps-retire-20260715/hermes-old-vps-archive-20260715T2355Z.tgz`  
 - Docs and SSH aliases must reference **only** `138.128.247.49` / `hermes-production`
 

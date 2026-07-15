@@ -67,14 +67,14 @@ Soak health confirmed by Dylan 2026-07-15 — Desktop / Telegram / Task OS / Obs
 
 ## Privilege cleanup
 
-- Removed `/etc/sudoers.d/hermes-migration-temp` after deploy restart  
-- Final model: Dylan password sudo via `sudo` group; no Hermes migration NOPASSWD  
-- Validated: migration file absent; `sudo -l` still shows password `ALL` for dylan
+- Removed `/etc/sudoers.d/hermes-migration-temp` after deploy (backup: `/home/dylan/hermes-migration-temp.REMOVED.bak`)  
+- Final model: Dylan password sudo via `sudo` group; migration NOPASSWD gone (`sudo -n systemctl` requires password)  
+- Services remain active; Dylan not locked out (group `sudo`)
 
 ## Old VPS destroy
 
 - Archive captured under `audit/old-vps-retire-20260715/` (config secrets omitted)  
-- Host `212.86.105.178` decommissioned per Dylan hard-gate lift  
+- Host `212.86.105.178` powered off / decommissioned 2026-07-15 (SSH timeout post-`poweroff -f`). No Kamatera API credentials on Mac for hard delete; cancel remaining bill/delete in Kamatera console if the powered-off server still appears.
 - SSH Host `hermes-production-old` removed from local SSH config  
 - Docs point only at `138.128.247.49`
 
