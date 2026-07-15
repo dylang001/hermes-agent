@@ -91,14 +91,36 @@ Mem0/session recalls /root/audit
 
 ---
 
-## 6. Rollback
+## 6. Follow-up defect (2026-07-15 21:22) — `/root/.git`
+
+**Symptom:** Fresh Desktop turn → fatal `PermissionError: [Errno 13] Permission denied: '/root/.git'`
+
+| Fact | Value |
+|------|--------|
+| Session | `20260715_192227_3c59eb` (`source=desktop`, **`cwd=/root`**) |
+| Crash site | `agent/prompt_builder.py::_find_git_root` → `Path.exists()` on `/root/.git` |
+| Call chain | `build_turn_context` → `_build_system_prompt` → `build_context_files_prompt` → `_find_hermes_md` |
+| Why cwd=/root | Desktop remembered remote workspace cwd `/root` (pre-migration). `_completion_cwd` accepted it because `os.path.isdir("/root")` is True even when unreadable. |
+
+**Additional fixes (commit `72ec5f64e`):**
+
+- `agent/path_boundary.py` — block `/root*` for local backends; require `R_OK|X_OK`
+- `_find_git_root` / context load never raises on privileged parents
+- `_completion_cwd` / `_heal_dead_cwd` / `_set_session_cwd` / session.create sanitize
+- Desktop `sanitizeRememberedWorkspaceCwd` drops remembered `/root`
+- Healed 11 historical `state.db` rows with `cwd like '/root%'` → `/opt/hermes/app`
+
+## 7. Rollback
 
 Revert commits touching:
 
 - `agent/runtime_metadata.py`
+- `agent/path_boundary.py`
 - `agent/tool_guardrails.py`
 - `agent/prompt_builder.py`
 - `agent/memory_manager.py`
+- `agent/runtime_cwd.py`
+- `tui_gateway/server.py`
 - `hermes_cli/config.py` (DEFAULT_CONFIG keys only)
 
 No schema/DB migrations. Prompt-cache impact: runtime block is stable per process/`HERMES_HOME` — safe for caching within a session.
