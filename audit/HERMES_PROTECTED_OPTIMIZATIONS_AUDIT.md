@@ -250,3 +250,22 @@ Related prior docs:
 - `plugins/clickup_task_os/README.md`
 
 **Bottom line:** Protected intelligence + Telegram concise work survived and is **enabled on the production gateway**. Loop Engineering (bounded delivery loop) did **not** survive and should stay out. ClickUp bridge does not compete with Task OS polling. **Do not enable Task OS cron until the remaining hygiene gates in §9 are closed.**
+
+
+## 11. Task OS gate closure (2026-07-15 evening)
+
+| Gate | Result |
+|------|--------|
+| Default `plugins.enabled` without `clickup_task_os` | Local + VPS confirmed |
+| Dedicated `task-os` profile only | Yes |
+| Commits | `db02cbdd0` (plugin) + `e41555c90` (audit docs) |
+| VPS HEAD | `e41555c900d9285a236ba88de7c721619e408637` |
+| Live Ops smoke task | `86carck03` — claimed once → waiting + `hermes-review`; second poll eligible=0 |
+| Evidence/completion gate | Independent Task OS gate (`evidence_is_resolvable`); no core rename for summarize-only/action-evidence |
+| Cron | VPS **default** HERMES_HOME job `4dcf0a86d0e8` every 5m runs `hermes -p task-os task-os poll`. Profile job `840ebe6313fb` paused. **Do not enable local cron.** |
+| Concurrency | 2 |
+| Loop Engineering | Not restored |
+| Intelligence/Telegram flags | Left ON at VPS gateway |
+| clickup-bridge | Kept; no poll overlap |
+
+Rollback cron: `HERMES_HOME=/opt/hermes/home hermes cron pause 4dcf0a86d0e8` (or remove).
