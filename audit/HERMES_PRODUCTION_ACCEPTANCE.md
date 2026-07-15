@@ -8,8 +8,8 @@
 
 | Item | Value |
 |------|--------|
-| Desktop / local SHA | _fill_ |
-| VPS `/opt/hermes/app` SHA | _fill_ (must match Desktop) |
+| Desktop / local SHA | `881f1cf4790507d2b4416e90ab0117a1f37546e0` |
+| VPS `/opt/hermes/app` SHA | `881f1cf4790507d2b4416e90ab0117a1f37546e0` (matches Desktop) |
 | Tag | `production-2026-07-16` |
 | `.deployed-sha` | same as tip |
 | Deploy commands | documented below |
