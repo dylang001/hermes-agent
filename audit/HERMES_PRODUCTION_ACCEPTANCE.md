@@ -1,6 +1,6 @@
 # Hermes Production Acceptance — Phase 7.1
 
-**Accepted:** 2026-07-15 (tag `production-2026-07-16`)  
+**Accepted:** 2026-07-15; tip corrected 2026-07-16 (canonical tag `production-2026-07-16b`)  
 **Scope:** Deployment finalization & baseline only (Week 1 already accepted).  
 **Production:** `hermes-production` / `hermes90210` / `138.128.247.49` only.
 
@@ -8,11 +8,17 @@
 
 | Item | Value |
 |------|--------|
-| Desktop / local SHA | `881f1cf4790507d2b4416e90ab0117a1f37546e0` |
-| VPS `/opt/hermes/app` SHA | `881f1cf4790507d2b4416e90ab0117a1f37546e0` (matches Desktop) |
-| Tag | `production-2026-07-16` |
-| `.deployed-sha` | same as tip |
+| Desktop / local SHA | `64d9a6982aa8e3f63f49274176b69eda64745a7b` |
+| VPS `/opt/hermes/app` SHA | `64d9a6982aa8e3f63f49274176b69eda64745a7b` (matches Desktop) |
+| Canonical tag | `production-2026-07-16b` (exact deployed tip) |
+| Historical tag | `production-2026-07-16` → `881f1cf4790507d2b4416e90ab0117a1f37546e0` (ancestor; not tip) |
+| `.deployed-sha` | same as tip (`64d9a6982…`) |
 | Deploy commands | documented below |
+
+
+### Tag correction (Phase 7.1 follow-up)
+
+Verified 2026-07-16: Desktop and VPS tip were already `64d9a6982…`, but annotated tag `production-2026-07-16` pointed at ancestor `881f1cf4…` (two docs commits behind). Did **not** force-move that tag. Canonical baseline is now `production-2026-07-16b` → tip `64d9a6982aa8e3f63f49274176b69eda64745a7b`.
 
 ### Exact SHA deploy (preferred path used)
 
@@ -74,7 +80,7 @@ Soak health confirmed by Dylan 2026-07-15 — Desktop / Telegram / Task OS / Obs
 ## Old VPS destroy
 
 - Archive captured under `audit/old-vps-retire-20260715/` (config secrets omitted)  
-- Host `212.86.105.178` powered off / decommissioned 2026-07-15 (SSH timeout post-`poweroff -f`). No Kamatera API credentials on Mac for hard delete; cancel remaining bill/delete in Kamatera console if the powered-off server still appears.
+- Host `212.86.105.178` powered off / decommissioned 2026-07-15 (SSH timeout post-`poweroff -f`). **Hard-delete of the powered-off server still requires the Kamatera console** (no API credentials on Mac); cancel remaining billing / delete in the Kamatera UI if it still appears.
 - SSH Host `hermes-production-old` removed from local SSH config  
 - Docs point only at `138.128.247.49`
 
@@ -83,9 +89,9 @@ Soak health confirmed by Dylan 2026-07-15 — Desktop / Telegram / Task OS / Obs
 Performed: documented restore steps executed as dry-run (verify tag + bundle object exists, `git rev-parse` / `git cat-file -t` for tagged SHA, confirm restart commands) **without** leaving production on a bad SHA. Production remains on tip SHA after simulation.
 
 ```bash
-# Rollback to this baseline
-TAG=production-2026-07-16
-SHA=$(git rev-parse "$TAG")
+# Rollback to this baseline (canonical tip tag)
+TAG=production-2026-07-16b
+SHA=$(git rev-parse "$TAG^{}")
 # reuse bundle path or recreate: git bundle create /tmp/hermes-rollback.bundle "$SHA"
 # then same VPS reset --hard "$SHA" + systemctl restart as above
 ```
