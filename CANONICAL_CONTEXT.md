@@ -17,9 +17,10 @@ When sources conflict, resolve against the highest-confidence source quietly and
 
 - local implementation checkout: `/Users/dylanangloher/.hermes/hermes-agent`
 - historical/sparse local placeholder: `/Users/dylanangloher/Documents/Hermes`
-- VPS production checkout: `/usr/local/lib/hermes-agent`
-- VPS state/config home: `/root/.hermes`
-- Obsidian filesystem MCP path on VPS: `/root/obsidian-vault`
+- VPS production checkout: `/opt/hermes/app` (branch `hermes-phase1-approved`; approved SHA recorded in `HERMES_PROTECTED_OPTIMIZATIONS_AUDIT.md`)
+- VPS state/config home: `/opt/hermes/home`
+- Legacy path `/usr/local/lib/hermes-agent` is stale — do not treat as current
+- Obsidian filesystem MCP path on VPS: verify live; historically `/root/obsidian-vault`
 
 ## VPS Runtime
 
@@ -64,14 +65,27 @@ Current VPS rollout state:
 
 ## ClickUp / Drive / Obsidian / Workspace IDs
 
-Verified from read-only ClickUp workspace hierarchy on July 9, 2026:
+Verified from read-only ClickUp workspace hierarchy on July 9, 2026;
+Ops Task OS mapping re-verified live on July 15, 2026:
 
 - ClickUp workspace: `Workspace` (`90152507264`)
 - Orchidea space: `Orchidea` (`901511216857`)
 - Orchidea prospecting list: `Pipeline` (`901524109891`)
 - Orchidea ops list: `Ops` (`901524109892`)
+- Orchidea Ops folder: `901516535453` (hidden)
 - Prospecting list source: ClickUp list metadata says `Pipeline` is for
   sales/outbound work with statuses from `prospecting` through `won/lost`.
+
+### Hermes Task OS board (Orchidea Ops)
+
+- List ID: `901524109892`
+- Trigger: status `next` AND tag `hermes-ready`
+- Status map: Inbox=`inbox`, Ready=`next`, In Progress=`in-progress`,
+  Waiting=`waiting`, Review=`waiting` + tag `hermes-review` (no native
+  Review column yet), Done=`done` (human only)
+- Plugin: `plugins/clickup_task_os/` (fork-local; not a core toolset)
+- Config key: `clickup_task_os` / `$HERMES_HOME/clickup_task_os.yaml`
+- Secret: `CLICKUP_API_TOKEN` in profile `.env` only
 
 ## Historical Facts To Avoid
 

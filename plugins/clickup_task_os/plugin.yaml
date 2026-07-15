@@ -1,0 +1,8 @@
+name: clickup_task_os
+version: 0.1.0
+description: "Fork-local ClickUp Task OS — cron-polled Ready+hermes-ready dispatch via Kanban. No core tool schemas."
+author: Dylan / Hermes fork
+kind: standalone
+platforms:
+  - linux
+  - macos
