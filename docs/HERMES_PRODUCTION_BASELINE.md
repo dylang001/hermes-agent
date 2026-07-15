@@ -1,6 +1,6 @@
 # Hermes Production Baseline
 
-**Date (UTC):** 2026-07-15 / tag date 2026-07-16  
+**Date (UTC):** 2026-07-15 / tip tag `production-2026-07-16b` 2026-07-16  
 **Migration milestone:** Phase 7.1 — Deployment Finalization & Baseline (Week 1 accepted)  
 **Production host only:** `hermes-production` → `hermes90210` / `138.128.247.49`  
 **Checkout:** `/opt/hermes/app` · `HERMES_HOME=/opt/hermes/home`
@@ -9,9 +9,10 @@
 
 | Field | Value |
 |-------|--------|
-| Git SHA (full) | 881f1cf4790507d2b4416e90ab0117a1f37546e0 |
-| Git SHA (short) | `881f1cf47` |
-| Tag | `production-2026-07-16` |
+| Git SHA (full) | 64d9a6982aa8e3f63f49274176b69eda64745a7b |
+| Git SHA (short) | `64d9a6982` |
+| Canonical tag | `production-2026-07-16b` (exact deployed tip) |
+| Historical tag | `production-2026-07-16` → `881f1cf4790507d2b4416e90ab0117a1f37546e0` (pre-docs baseline; not running tip) |
 | Branch (Desktop) | `codex/hermes-phase1-upstream-merge-20260715` |
 | VPS branch name | `hermes-phase1-approved` (tracks deployed SHA) |
 | Deploy method | git bundle → `git fetch` + `git reset --hard <SHA>` + clean worktree + `.deployed-sha` |
@@ -85,7 +86,7 @@ Observed keys under `gateway:` include `message_timestamps`, `max_inbound_media_
 
 ## Retired host
 
-- Old VPS `212.86.105.178` powered off / decommissioned 2026-07-15 (SSH timeout post-`poweroff -f`). No Kamatera API credentials on Mac for hard delete; cancel remaining bill/delete in Kamatera console if the powered-off server still appears.
+- Old VPS `212.86.105.178` powered off / decommissioned 2026-07-15 (SSH timeout post-`poweroff -f`). **Hard-delete still requires Kamatera console** — no API credentials on Mac; cancel remaining bill / delete the powered-off server in the Kamatera UI if it still appears.
 - Archive (secrets redacted): `audit/old-vps-retire-20260715/hermes-old-vps-archive-20260715T2355Z.tgz`  
 - Docs and SSH aliases must reference **only** `138.128.247.49` / `hermes-production`
 
@@ -99,4 +100,4 @@ Observed keys under `gateway:` include `message_timestamps`, `max_inbound_media_
 
 ## Rollback (summary)
 
-See `audit/HERMES_PRODUCTION_ACCEPTANCE.md` — restore tagged SHA via bundle + `git reset --hard` + restart gateway/dashboard.
+See `audit/HERMES_PRODUCTION_ACCEPTANCE.md` — restore canonical tag `production-2026-07-16b` (SHA `64d9a6982…`) via bundle + `git reset --hard` + restart gateway/dashboard.
