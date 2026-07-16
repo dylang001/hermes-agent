@@ -35,6 +35,14 @@ def test_needs_normalize_filesystem_growth_os_false():
     assert obsidian_mcp_needs_normalize(entry) is False
 
 
+def test_needs_normalize_missing_npx_path():
+    entry = {
+        "command": "/nonexistent/hermes-npx-missing",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem@2026.7.10", "/vault"],
+    }
+    assert obsidian_mcp_needs_normalize(entry) is True
+
+
 def test_normalize_removes_http_and_scopes_mount(tmp_path):
     vault = tmp_path / "Growth OS"
     vault.mkdir()

@@ -6180,6 +6180,37 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                 config["mcp_servers"] = raw_mcp_servers
                 _persist_migration(config)
 
+    # ── Post-migration: keep Obsidian MCP on a working filesystem mount ──
+    config = read_raw_config()
+    raw_mcp_servers = config.get("mcp_servers")
+    if isinstance(raw_mcp_servers, dict):
+        try:
+            from hermes_cli.obsidian_mcp_normalize import (
+                normalize_obsidian_mcp_entry,
+                obsidian_mcp_needs_normalize,
+            )
+        except Exception:
+            normalize_obsidian_mcp_entry = None  # type: ignore[assignment,misc]
+            obsidian_mcp_needs_normalize = None  # type: ignore[assignment,misc]
+        if normalize_obsidian_mcp_entry and obsidian_mcp_needs_normalize:
+            obs_entry = raw_mcp_servers.get("obsidian")
+            if obsidian_mcp_needs_normalize(obs_entry):
+                try:
+                    normalized, changes = normalize_obsidian_mcp_entry(obs_entry)
+                except ValueError as exc:
+                    results["warnings"].append(f"Obsidian MCP normalize skipped: {exc}")
+                else:
+                    raw_mcp_servers["obsidian"] = normalized
+                    config["mcp_servers"] = raw_mcp_servers
+                    _persist_migration(config)
+                    summary = "; ".join(changes) or "filesystem Growth OS mount"
+                    results["config_added"].append(f"mcp_servers.obsidian → {summary}")
+                    if not quiet:
+                        print(
+                            "  ✓ Obsidian MCP repaired "
+                            f"({summary})"
+                        )
+
     # ── Always: validate platform_toolsets after migration ──
     # A migration (or hand-edit) that leaves an invalid toolset name in
     # platform_toolsets silently disables the affected tools — resolve_toolset()

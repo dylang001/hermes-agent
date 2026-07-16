@@ -71,12 +71,16 @@ def obsidian_mcp_needs_normalize(entry: dict[str, Any] | None) -> bool:
             return True
         if text == "@modelcontextprotocol/server-filesystem":
             return True
+    command = str(entry.get("command", "")).strip()
+    if _command_path_missing(command):
+        return True
     return False
 
 
 def _resolve_npx_command() -> str:
     for candidate in (
         shutil.which("npx"),
+        "/usr/bin/npx",
         "/usr/local/bin/npx",
         "/opt/homebrew/bin/npx",
         os.path.expanduser("~/.local/bin/npx"),
@@ -84,6 +88,13 @@ def _resolve_npx_command() -> str:
         if candidate and Path(candidate).is_file():
             return candidate
     return "npx"
+
+
+def _command_path_missing(command: str) -> bool:
+    cmd = (command or "").strip()
+    if not cmd or cmd == "npx":
+        return False
+    return not Path(cmd).is_file()
 
 
 def normalize_obsidian_mcp_entry(
