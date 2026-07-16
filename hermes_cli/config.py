@@ -3350,7 +3350,7 @@ DEFAULT_CONFIG = {
     },
 
     # Config schema version - bump this when adding new required fields
-    "_config_version": 33,
+    "_config_version": 34,
 }
 
 # =============================================================================
@@ -6109,6 +6109,44 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                     "delegation.max_concurrent_children now caps background "
                     "delegations too."
                 )
+
+    # ── Version 33 → 34: Obsidian MCP → scoped filesystem Growth OS ──
+    # Local REST API (127.0.0.1:27124) only works beside the Obsidian app on
+    # the operator Mac. VPS/production must use stdio filesystem MCP on the
+    # synced Growth OS vault — never /root/obsidian-vault or localhost HTTP.
+    if current_ver < 34:
+        try:
+            from hermes_cli.obsidian_mcp_normalize import (
+                normalize_obsidian_mcp_entry,
+                obsidian_mcp_needs_normalize,
+            )
+        except Exception:
+            normalize_obsidian_mcp_entry = None  # type: ignore[assignment,misc]
+            obsidian_mcp_needs_normalize = None  # type: ignore[assignment,misc]
+
+        if normalize_obsidian_mcp_entry and obsidian_mcp_needs_normalize:
+            config = read_raw_config()
+            raw_mcp_servers = config.get("mcp_servers")
+            if isinstance(raw_mcp_servers, dict):
+                obs_entry = raw_mcp_servers.get("obsidian")
+                if obsidian_mcp_needs_normalize(obs_entry):
+                    try:
+                        normalized, changes = normalize_obsidian_mcp_entry(obs_entry)
+                    except ValueError as exc:
+                        results["warnings"].append(f"Obsidian MCP normalize skipped: {exc}")
+                        if not quiet:
+                            print(f"  ⚠ Obsidian MCP normalize skipped: {exc}")
+                    else:
+                        raw_mcp_servers["obsidian"] = normalized
+                        config["mcp_servers"] = raw_mcp_servers
+                        _persist_migration(config)
+                        summary = "; ".join(changes) or "filesystem Growth OS mount"
+                        results["config_added"].append(f"mcp_servers.obsidian → {summary}")
+                        if not quiet:
+                            print(
+                                "  ✓ Obsidian MCP normalized to filesystem Growth OS "
+                                f"({summary})"
+                            )
 
     # ── Post-migration: disable exfiltration-shaped MCP stdio entries ──
     # Users can hand-edit mcp_servers, and older installs may already contain a

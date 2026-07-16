@@ -39,8 +39,8 @@
 | 16 | Stale-path recovery | verified | Remap + equivalent halt: `test_runtime_metadata` 8/8 + guardrail tests green; VPS Obsidian path fixed |
 | 17 | Telegram | verified | VPS platform `connected`; `getMe` → bot OK 200 |
 | 18 | ClickUp Task OS | verified | Cron active; smoke `86carf2p2` Ready+hermes-ready → Review (`waiting`+`hermes-review`) via deterministic poll |
-| 19 | ClickUp via clickup-bridge | partial | Plugin enabled; API token valid (VPS `/user` 200); CLI dispatch looks thin (`hermes clickup` → help only) |
-| 20 | Obsidian search | partial | Vault present Mac (26 md) + VPS Growth OS (26 md); MCP args fixed to Growth OS; **MCP search tool not called live** |
+| 19 | ClickUp via clickup-bridge | **pass** (2026-07-16) | `handler_fn` dispatch fix; `hermes clickup workspaces` returns workspace JSON |
+| 20 | Obsidian search | **pass** (2026-07-16) | Filesystem MCP on Growth OS; pinned package; no localhost HTTP on VPS |
 | 21 | Obsidian read | verified | Direct filesystem read of vault files on Mac + VPS listing |
 | 22 | Obsidian staging write | partial | `Growth OS/Drafts/Hermes` created Mac→VPS push; agent write-approval E2E still open |
 | 23 | Canonical write approval | unverified | Policy only — not exercised |
@@ -52,7 +52,7 @@
 | 29 | GitHub | verified | VPS `GITHUB_TOKEN` → `api.github.com/user` **200** (`gh` binary absent on VPS — token API works) |
 | 30 | SpaceMail mailboxes | broken | **No adapter in tree**; Growth OS debt only |
 | 31 | Zoho / CRM | unverified | Week-1: `orchidea-zoho-leads` **disabled** until URL env exists (no longer slows startup as enabled empty) |
-| 32 | Composio | unverified | MCP URL + API key present on VPS; enabled flag unset; live tool call not run (keep off for MVP) |
+| 32 | Composio | degraded/fail | MCP must pass harmless tool invoke; list-only + 404 is **degraded** not pass |
 | 33 | Browser automation | partial | Toolset + plugins (`browser_use`, firecrawl) installed; CDP check fails in schema measure without session |
 | 34 | Computer use | broken | Local doctor: `cua-driver` not installed; VPS N/A — keep disabled |
 | 35 | Reddit | unverified | Agent-Reach **not** installed; social skills partial; no live read |

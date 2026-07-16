@@ -161,3 +161,16 @@ python -m hermes_cli.capability_profiles measure --profile daily-ops
 - ClickUp smoke task: `86carf2p2` → Review (`waiting` + `hermes-review`)
 - Deterministic evidence path: `/tmp/hermes-task-os-smoke-86carf2p2.txt` (on VPS worker host)
 - Obsidian: `/opt/hermes/data/obsidian/Growth OS/Drafts/Hermes/README.md`
+
+---
+
+## Capability check remediation (2026-07-16)
+
+Production capability check (`audit/capability_check_2026-07-16.py`) identified four fixable gaps:
+
+1. **ClickUp CLI** — `clickup-bridge` registered subparsers without `handler_fn`; fixed in user plugin (`audit/HERMES_CLICKUP_CLI_FIX.md`).
+2. **Obsidian MCP** — VPS localhost HTTP unreachable; migration v34 normalizes to filesystem Growth OS + pinned `@modelcontextprotocol/server-filesystem@2026.7.10` (`audit/HERMES_OBSIDIAN_MCP_FIX.md`). Mac may still use Local REST API when Hermes runs beside Obsidian.
+3. **Composio** — pass requires tool invoke, not list-only (`audit/HERMES_COMPOSIO_VALIDATION.md`).
+4. **Checker** — stricter pass/degraded/fail/auth_required semantics in capability check script.
+
+Post-deploy: `python audit/capability_check_2026-07-16.py` with `HERMES_HOME=/opt/hermes/home`.

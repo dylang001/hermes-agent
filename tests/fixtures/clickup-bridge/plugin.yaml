@@ -1,0 +1,17 @@
+name: clickup-bridge
+version: 0.1.0
+description: "Read-only ClickUp bridge for the Hermes Growth OS. No writes without explicit Dylan approval."
+kind: standalone
+author: Hermes Operator
+requires_env:
+  - CLICKUP_API_TOKEN
+commands:
+  - hermes clickup <subcommand>
+approval_gate:
+  require_approved_by: dylan
+  require_explicit_flag: --approved-by-dylan
+  forbid:
+    - delete
+    - archive
+    - move
+    - edit

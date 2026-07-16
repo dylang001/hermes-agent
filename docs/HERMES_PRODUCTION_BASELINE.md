@@ -92,7 +92,7 @@ Observed keys under `gateway:` include `message_timestamps`, `max_inbound_media_
 
 ## Known limitations
 
-- Obsidian MCP may fail initial connect and park until reconnect (gateway logs)
+- Obsidian MCP: use filesystem Growth OS mount on VPS (not localhost HTTP). First `npx` fetch may take ~45s; pin `@modelcontextprotocol/server-filesystem@2026.7.10`.
 - Shell hook `/root/.hermes/agent-hooks/skill_finder_hook.sh` skipped (not allowlisted) — non-blocking
 - SpaceMail send / LinkedIn automation / social publishing remain **disabled**
 - No second Task OS poller
