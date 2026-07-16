@@ -119,8 +119,16 @@ def normalize_obsidian_mcp_entry(
     if prior.get("auth"):
         changes.append(f"removed auth={prior.get('auth')!r}")
 
+    resolved_npx = _resolve_npx_command()
+    prior_cmd = str(prior.get("command", "")).strip()
+    if _command_path_missing(prior_cmd):
+        if prior_cmd:
+            changes.append(f"replaced missing npx command {prior_cmd!r} → {resolved_npx}")
+    elif prior_cmd and prior_cmd != resolved_npx and prior_cmd != "npx":
+        changes.append(f"normalized npx command {prior_cmd!r} → {resolved_npx}")
+
     normalized: dict[str, Any] = {
-        "command": prior.get("command") or _resolve_npx_command(),
+        "command": resolved_npx,
         "args": [
             "-y",
             FILESYSTEM_MCP_PACKAGE,
