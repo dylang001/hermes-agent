@@ -566,13 +566,21 @@ function buildPinArgs(installStamp, { pinCommit = true, branch = null } = {}) {
   return args
 }
 
+interface PosixPinArgs {
+  installStamp?: { commit?: string; branch?: string | null } | null
+  activeRoot?: string | null
+  hermesHome?: string | null
+  pinCommit?: boolean
+  branch?: string | null
+}
+
 function buildPosixPinArgs({
   installStamp,
   activeRoot,
   hermesHome,
   pinCommit = true,
   branch = null
-} = {}) {
+}: PosixPinArgs = {}) {
   const args = ['--dir', activeRoot, '--hermes-home', hermesHome]
 
   const resolvedBranch = branch || (pinCommit && installStamp ? installStamp.branch : null)

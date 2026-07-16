@@ -1,7 +1,7 @@
 # Hermes Production Baseline
 
-**Date (UTC):** 2026-07-15 / tip tag `production-2026-07-16b` 2026-07-16  
-**Migration milestone:** Phase 7.1 — Deployment Finalization & Baseline (Week 1 accepted)  
+**Date (UTC):** 2026-07-16 — latest-upstream upgrade tip  
+**Migration milestone:** Phase 7.1 baseline + latest-upstream merge (`origin/main` @ `1d48863b8`)  
 **Production host only:** `hermes-production` → `hermes90210` / `138.128.247.49`  
 **Checkout:** `/opt/hermes/app` · `HERMES_HOME=/opt/hermes/home`
 
@@ -9,14 +9,15 @@
 
 | Field | Value |
 |-------|--------|
-| Git SHA (full) | 64d9a6982aa8e3f63f49274176b69eda64745a7b |
-| Git SHA (short) | `64d9a6982` |
-| Canonical tag | `production-2026-07-16b` (exact deployed tip) |
-| Historical tag | `production-2026-07-16` → `881f1cf4790507d2b4416e90ab0117a1f37546e0` (pre-docs baseline; not running tip) |
-| Branch (Desktop) | `codex/hermes-phase1-upstream-merge-20260715` |
+| Git SHA (full) | *(set on tag commit — see `.deployed-sha`)* |
+| Canonical tag | `production-2026-07-16-upstream` |
+| Historical tag | `production-2026-07-16b` → `64d9a6982aa8e3f63f49274176b69eda64745a7b` |
+| Preservation tip | `preserve/hermes-pre-upstream-20260716T0958Z` @ `18b78dd1f` |
+| Branch (Desktop / upgrade) | `upgrade/hermes-latest-upstream-20260716` |
 | VPS branch name | `hermes-phase1-approved` (tracks deployed SHA) |
 | Deploy method | git bundle → `git fetch` + `git reset --hard <SHA>` + clean worktree + `.deployed-sha` |
-| Compatibility | Week-1 `daily-ops` profile; single Task OS poller; Mem0; Obsidian MCP; path-boundary / skill_discovery / capability_gap wire |
+| Compatibility | Week-1 `daily-ops`; Task OS; Mem0; Obsidian filesystem MCP Growth OS; path-boundary / skill_discovery; no obsolete skill_finder shell hook |
+| Hermes version | `v0.18.2 (2026.7.7.2)` |
 
 ## Systemd services (running)
 
@@ -92,12 +93,14 @@ Observed keys under `gateway:` include `message_timestamps`, `max_inbound_media_
 
 ## Known limitations
 
-- Obsidian MCP: use filesystem Growth OS mount on VPS (not localhost HTTP). First `npx` fetch may take ~45s; pin `@modelcontextprotocol/server-filesystem@2026.7.10`.
-- Shell hook `/root/.hermes/agent-hooks/skill_finder_hook.sh` skipped (not allowlisted) — non-blocking
+- Obsidian MCP: filesystem Growth OS mount on VPS (not localhost HTTP). Pin `@modelcontextprotocol/server-filesystem@2026.7.10`.
+- Obsolete `skill_finder_hook.sh` removed (auto-install without approval); use `agent/skill_discovery.py`.
+- Shell hook `/root/.hermes/...` references cleared from live config; `HERMES_DISABLE_SHELL_HOOKS=1` remains.
+- Service restart requires Dylan password sudo (migration NOPASSWD removed).
 - SpaceMail send / LinkedIn automation / social publishing remain **disabled**
 - No second Task OS poller
 - Phase 8+ is business capabilities, not further infra optimization
 
 ## Rollback (summary)
 
-See `audit/HERMES_PRODUCTION_ACCEPTANCE.md` — restore canonical tag `production-2026-07-16b` (SHA `64d9a6982…`) via bundle + `git reset --hard` + restart gateway/dashboard.
+See `audit/HERMES_LATEST_UPSTREAM_UPGRADE_REPORT.md` — restore preservation tip `18b78dd1f` or prior tag `production-2026-07-16b` via bundle + `git reset --hard` + restart gateway/dashboard.
