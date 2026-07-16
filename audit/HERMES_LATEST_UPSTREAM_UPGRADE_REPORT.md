@@ -16,7 +16,7 @@
 | Focused Python tests | **283 passed** (obsidian, clickup, path_boundary, config, input_sanitize, telegram policy, skill discovery, WAL, MCP catalog, codex ttfb) |
 | Desktop typecheck | **pass** (after typing fix for `buildPosixPinArgs`) |
 | Desktop vitest (merge-touched) | **33 passed** |
-| Approved SHA | `e1f00f9f0cde1e77d252c92a146eec342120b545` |
+| Approved SHA | `4fa449a53f3ed01536cfc325c04076fcf38de835` |
 | Immutable tag | `production-2026-07-16-upstream` (annotated) |
 
 ## Runtime cleanup evidence
