@@ -190,7 +190,7 @@ function IdleView({
             {u.tryAgain}
           </Button>
         }
-        body={u.connectionRetry}
+        body={status.message ?? u.connectionRetry}
         icon={<ErrorIcon />}
         title={u.checkFailedTitle}
       />

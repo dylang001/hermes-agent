@@ -247,6 +247,25 @@ describe('checkBackendUpdates', () => {
     expect(result?.message).toBe('Docker images are immutable.')
   })
 
+  it('marks check-failed when behind is null (bundle remote / unreachable), not latest', async () => {
+    setRemote(true)
+    checkHermesUpdateSpy.mockResolvedValue({
+      install_method: 'git',
+      current_version: '0.18.2',
+      behind: null,
+      update_available: false,
+      can_apply: true,
+      update_command: 'hermes update',
+      message: 'This backend tracks a local deploy bundle, not GitHub upstream.'
+    })
+
+    const result = await checkBackendUpdates()
+
+    expect(result?.updateAvailable).toBe(false)
+    expect(result?.error).toBe('check-failed')
+    expect(result?.message).toMatch(/deploy bundle/)
+  })
+
   it('is a no-op in local mode (backend check only runs when remote)', async () => {
     setRemote(false)
     await checkBackendUpdates()

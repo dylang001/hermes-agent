@@ -285,15 +285,20 @@ function isRemoteMode(): boolean {
 }
 
 function mapBackendCheck(res: BackendUpdateCheckResponse): DesktopUpdateStatus {
-  const behind = res.behind ?? 0
+  // Preserve "check could not run" (behind === null) separately from
+  // "actually up to date" (behind === 0). Collapsing null→0 previously made
+  // the overlay claim "latest version" when the VPS couldn't reach upstream
+  // (e.g. origin is a local deploy bundle with no origin/main).
+  const checkFailed = res.behind === null && !res.update_available
 
   return {
     supported: res.can_apply,
     message: res.message ?? undefined,
     updateAvailable: res.update_available,
-    behind: behind > 0 ? behind : 0,
+    behind: typeof res.behind === 'number' && res.behind > 0 ? res.behind : 0,
     targetSha: res.update_available ? `backend:${res.current_version}` : undefined,
     commits: res.commits,
+    error: checkFailed ? 'check-failed' : undefined,
     fetchedAt: Date.now()
   }
 }
