@@ -1,0 +1,80 @@
+{
+  "benchmark": "memory_reliability_v0",
+  "baseline_tag": "runtime-2026-07-19",
+  "mode": "offline",
+  "passed": true,
+  "suite_score": 1.0,
+  "elapsed_ms": 2.4,
+  "scenarios": [
+    {
+      "id": "working_memory_prefix",
+      "dimension": "working-memory retention",
+      "passed": true,
+      "score": 1.0,
+      "details": {
+        "has_working_memory_language": true,
+        "preserves_key_decisions": true,
+        "preserves_relevant_files": true,
+        "continuity_over_discard": true,
+        "no_discard_stale": true,
+        "not_legacy_prefix": true,
+        "latest_wins_on_conflict": true
+      }
+    },
+    {
+      "id": "two_turn_action",
+      "dimension": "conversation continuity",
+      "passed": true,
+      "score": 1.0,
+      "details": {
+        "action_marker_retained": true,
+        "tokens_before": 10792,
+        "tokens_after": 10792,
+        "stage": "normal",
+        "recovery": "none"
+      }
+    },
+    {
+      "id": "engineering_markers",
+      "dimension": "engineering continuity",
+      "passed": true,
+      "score": 1.0,
+      "details": {
+        "decision_retained": true,
+        "open_file_retained": true,
+        "todo_retained": true,
+        "distractor_absent": true,
+        "tokens_before": 14919,
+        "tokens_after": 14919
+      }
+    },
+    {
+      "id": "decision_latest_wins",
+      "dimension": "conversation continuity",
+      "passed": true,
+      "score": 1.0,
+      "details": {
+        "latest_is_b": true,
+        "prefix_requires_conflict_win": true,
+        "a_still_in_history_ok": true,
+        "current_pointer_is_b": true
+      }
+    },
+    {
+      "id": "hallucination_guard",
+      "dimension": "hallucination rate",
+      "passed": true,
+      "score": 1.0,
+      "details": {
+        "distractor_absent": true,
+        "real_marker_present": true
+      }
+    }
+  ],
+  "dimensions": {
+    "conversation_continuity": 1.0,
+    "engineering_continuity": 1.0,
+    "working_memory_retention": 1.0,
+    "hallucination_guard": 1.0
+  }
+}
