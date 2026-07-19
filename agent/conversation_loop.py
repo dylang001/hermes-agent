@@ -828,6 +828,26 @@ def run_conversation(
             if idx == current_turn_user_idx and msg.get("role") == "user":
                 _injections = []
                 if _ext_prefetch_cache:
+                    # Absolute memory-prefetch budget (Phase 1 governor).
+                    try:
+                        from agent.context_governor import (
+                            ContextGovernorConfig,
+                            cap_memory_prefetch,
+                        )
+
+                        _gov_cfg = getattr(agent, "_context_governor_config", None)
+                        if _gov_cfg is None:
+                            _gov_cfg = ContextGovernorConfig.load()
+                            agent._context_governor_config = _gov_cfg
+                        if _gov_cfg.enabled:
+                            _actions: list = []
+                            _ext_prefetch_cache = cap_memory_prefetch(
+                                _ext_prefetch_cache,
+                                _gov_cfg.max_memory_prefetch_tokens,
+                                _actions,
+                            )
+                    except Exception:
+                        pass
                     _fenced = build_memory_context_block(_ext_prefetch_cache)
                     if _fenced:
                         _injections.append(_fenced)
@@ -1105,7 +1125,51 @@ def run_conversation(
             agent._api_call_count = api_call_count
             agent.iteration_budget.refund()
             continue
-        
+
+        # Absolute live-token governor (Phase 1). Independent of model window
+        # size: prune/summarize to stay under max_live_tokens; if still over,
+        # block the provider call — never silently send an oversized request.
+        # Memory prefetch was already capped at injection time above.
+        try:
+            from agent.context_governor import ContextGovernorConfig, govern_request
+
+            _gov_cfg = getattr(agent, "_context_governor_config", None)
+            if _gov_cfg is None:
+                _gov_cfg = ContextGovernorConfig.load()
+                agent._context_governor_config = _gov_cfg
+            _gov = govern_request(
+                api_messages,
+                tools=agent.tools or None,
+                memory_prefetch="",
+                config=_gov_cfg,
+            )
+            if _gov.actions:
+                logger.info(
+                    "Context governor: %s (tokens %s → %s)",
+                    "; ".join(_gov.actions),
+                    f"{_gov.tokens_before:,}",
+                    f"{_gov.tokens_after:,}",
+                )
+            if _gov.blocked:
+                final_response = (
+                    "❌ Request blocked by context governor: "
+                    f"{_gov.block_reason}"
+                )
+                failed = True
+                _turn_exit_reason = "context_governor_blocked"
+                messages.append({"role": "assistant", "content": final_response})
+                agent._emit_status(final_response)
+                api_call_count -= 1
+                agent._api_call_count = api_call_count
+                try:
+                    agent.iteration_budget.refund()
+                except Exception:
+                    pass
+                break
+            api_messages = _gov.messages
+        except Exception as _gov_exc:
+            logger.warning("Context governor failed open: %s", _gov_exc)
+
         # Thinking spinner for quiet mode (animated during API call)
         thinking_spinner = None
         

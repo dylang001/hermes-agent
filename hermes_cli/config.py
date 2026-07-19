@@ -1358,6 +1358,24 @@ DEFAULT_CONFIG = {
     # and override the dynamic behavior. Separate from read_file tool limits.
     "context_file_max_chars": None,
 
+    # When True (Phase 1 default), project context files (AGENTS.md etc.) are
+    # injected as a short generated brief + section index instead of the full
+    # body. The model loads individual sections via read_file when needed.
+    # Set False to restore legacy full-file injection (still truncated by
+    # context_file_max_chars).
+    "context_project_brief": True,
+
+    # Absolute live-token governor — independent of model context_length.
+    # Oversized requests are pruned/summarized before the provider call; if
+    # still over max_live_tokens the request is blocked (never silently sent).
+    "context_governor": {
+        "enabled": True,
+        "max_live_tokens": 28_000,
+        "max_retrieval_tokens": 5_000,
+        "max_tool_result_tokens": 6_000,
+        "max_memory_prefetch_tokens": 1_500,
+    },
+
     # Maximum characters returned by a single read_file call.  Reads that
     # exceed this are rejected with guidance to use offset+limit.
     # 100K chars ≈ 25–35K tokens across typical tokenisers.
@@ -1428,7 +1446,9 @@ DEFAULT_CONFIG = {
                                       # doesn't fire with half the window still free;
                                       # set this above 0.75 to override the floor.
         "target_ratio": 0.20,         # fraction of threshold to preserve as recent tail
-        "protect_last_n": 20,         # minimum recent messages to keep uncompressed
+        "protect_last_n": 8,          # minimum recent messages to keep uncompressed
+                                      # (Phase 1: lowered from 20 so absolute live
+                                      # budgets can actually reclaim mid-session)
         "hygiene_hard_message_limit": 5000,  # gateway session-hygiene force-compress threshold by message count
         "protect_first_n": 3,         # non-system head messages always preserved
                                       # verbatim, in ADDITION to the system prompt
@@ -2850,7 +2870,9 @@ DEFAULT_CONFIG = {
             #   tool. Use when you have many MCP servers and want maximum
             #   token reduction unconditionally.
             # "off" — disable entirely. Tools-array assembly is a pass-through.
-            "enabled": "auto",
+            # Phase 1 remediation defaults to "on" so MCP/plugin schemas
+            # never sit unpaid in every request.
+            "enabled": "on",
             # Percentage of context length at which "auto" mode kicks in.
             # 10 matches the Claude Code default. Range 0..100.
             "threshold_pct": 10,
@@ -7720,12 +7742,14 @@ def save_env_value(key: str, value: str):
     if managed_scope.is_env_managed(key):
         managed_dir = managed_scope.get_managed_dir()
         src = (managed_dir / ".env") if managed_dir else "the managed scope"
-        print(
+        msg = (
             f"Cannot set {key}: it is managed by your administrator ({src}) "
-            f"and cannot be changed.",
-            file=sys.stderr,
+            f"and cannot be changed."
         )
-        return
+        print(msg, file=sys.stderr)
+        # Raise so dashboard PUT /api/env and other callers do not report
+        # success when the write was a no-op (silent return left keys stuck).
+        raise ValueError(msg)
     if not _ENV_VAR_NAME_RE.match(key):
         raise ValueError(f"Invalid environment variable name: {key!r}")
     _reject_denylisted_env_var(key)

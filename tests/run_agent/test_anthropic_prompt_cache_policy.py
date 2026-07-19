@@ -212,6 +212,63 @@ class TestMiniMaxAnthropicWire:
         assert agent._anthropic_prompt_cache_policy() == (False, False)
 
 
+class TestOpenCodeAnthropicWireTransport:
+    """OpenCode Go/Zen on anthropic_messages → EXPLICIT native (transport).
+
+    Capability is declared by the OpenCode provider adapter for the
+    Anthropic Messages wire — not keyed off MiniMax model slugs. Any
+    model routed to api_mode=anthropic_messages gets native markers;
+    OpenAI-wire models stay AUTO (no Hermes markers) unless Qwen.
+    """
+
+    def test_anthropic_wire_on_opencode_go_caches_native_layout(self):
+        agent = _make_agent(
+            provider="opencode-go",
+            base_url="https://opencode.ai/zen/go/v1",
+            api_mode="anthropic_messages",
+            model="minimax-m3",
+        )
+        assert agent._anthropic_prompt_cache_policy() == (True, True)
+
+    def test_any_model_on_opencode_go_anthropic_wire_caches(self):
+        # Transport-driven: model slug must not gate the capability.
+        agent = _make_agent(
+            provider="opencode-go",
+            base_url="https://opencode.ai/zen/go/v1",
+            api_mode="anthropic_messages",
+            model="some-future-model",
+        )
+        assert agent._anthropic_prompt_cache_policy() == (True, True)
+
+    def test_anthropic_wire_on_opencode_zen_caches(self):
+        agent = _make_agent(
+            provider="opencode-zen",
+            base_url="https://opencode.ai/zen/v1",
+            api_mode="anthropic_messages",
+            model="minimax-m3",
+        )
+        assert agent._anthropic_prompt_cache_policy() == (True, True)
+
+    def test_openai_wire_on_opencode_go_does_not_emit_markers(self):
+        # AUTO cache — do not send Anthropic cache_control on OpenAI wire.
+        agent = _make_agent(
+            provider="opencode-go",
+            base_url="https://opencode.ai/zen/go/v1",
+            api_mode="chat_completions",
+            model="minimax-m3",
+        )
+        assert agent._anthropic_prompt_cache_policy() == (False, False)
+
+    def test_glm_on_opencode_go_openai_wire_does_not_emit_markers(self):
+        agent = _make_agent(
+            provider="opencode-go",
+            base_url="https://opencode.ai/zen/go/v1",
+            api_mode="chat_completions",
+            model="glm-5.2",
+        )
+        assert agent._anthropic_prompt_cache_policy() == (False, False)
+
+
 class TestOpenAIWireFormatOnCustomProvider:
     """A custom provider using chat_completions (OpenAI wire) should NOT get caching."""
 

@@ -4,6 +4,7 @@ import json
 import logging
 import urllib.request
 
+from agent.prompt_cache_capabilities import PromptCacheCapability, explicit_native
 from hermes_cli.urllib_security import open_credentialed_url
 from providers import register_provider
 from providers.base import ProviderProfile
@@ -13,6 +14,15 @@ logger = logging.getLogger(__name__)
 
 class AnthropicProfile(ProviderProfile):
     """Native Anthropic — uses x-api-key header, not Bearer."""
+
+    def prompt_cache_capability(
+        self,
+        *,
+        api_mode: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> PromptCacheCapability | None:
+        return explicit_native("profile:anthropic")
 
     def fetch_models(
         self,

@@ -9,6 +9,11 @@ reasoning controls in extra_body.
 from typing import Any
 from urllib.parse import urlparse
 
+from agent.prompt_cache_capabilities import (
+    PromptCacheCapability,
+    auto_cache,
+    explicit_native,
+)
 from providers import register_provider
 from providers.base import ProviderProfile
 
@@ -28,6 +33,19 @@ def _is_minimax_m3(model: str | None) -> bool:
 
 class MiniMaxProfile(ProviderProfile):
     """MiniMax — M3 OpenAI-compatible reasoning controls."""
+
+    def prompt_cache_capability(
+        self,
+        *,
+        api_mode: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> PromptCacheCapability | None:
+        """Anthropic wire → EXPLICIT; OpenAI wire → AUTO (native MiniMax cache)."""
+        mode = (api_mode or self.api_mode or "").strip().lower()
+        if mode == "anthropic_messages":
+            return explicit_native(f"profile:{self.name}+anthropic_messages")
+        return auto_cache(f"profile:{self.name}+openai_wire_auto")
 
     def build_api_kwargs_extras(
         self,

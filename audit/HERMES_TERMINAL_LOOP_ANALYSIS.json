@@ -1,0 +1,983 @@
+{
+  "sessions": [
+    {
+      "session_id": "20260619_092959_3be2c9",
+      "model": "minimax-m3",
+      "api_call_count": 261,
+      "cache_read_tokens": 55783831,
+      "terminal_calls": 272,
+      "unique_commands": 270,
+      "duplicate_commands": 2,
+      "duplicate_rate": 0.7,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 11,
+      "exit_zero": 261,
+      "exit_unknown": 0,
+      "categories": {
+        "git": 63,
+        "inspect": 87,
+        "hermes_cli": 17,
+        "search": 39,
+        "test": 35,
+        "mutate": 7,
+        "other": 1,
+        "ssh": 23
+      },
+      "top_commands": [
+        {
+          "command": "scripts/run_tests.sh tests/hermes_cli/test_inventory.py tests/hermes_cli/test_models.py tests/agent/test_action_evidence_guard.py 2>&1 | tail -10",
+          "count": 2
+        },
+        {
+          "command": "git worktree list 2>&1",
+          "count": 2
+        },
+        {
+          "command": "pwd && date && git status --short | head -30 && echo \"---\" && git log --oneline -5",
+          "count": 1
+        },
+        {
+          "command": "ls -la ~/.hermes/ 2>/dev/null | head -30 && echo \"---PROFILES---\" && ls -la ~/.hermes/profiles/ 2>/dev/null | head -20",
+          "count": 1
+        },
+        {
+          "command": "ls -la *.md | head -25 && echo \"---\" && wc -l HERMES_RECOVERY_PLAN.md HERMES_OPTIMIZATION_PLAN.md HERMES_SYSTEM_CRITIQUE.md 2>/dev/null",
+          "count": 1
+        },
+        {
+          "command": "ls -la ~/.hermes/cron/ ~/.hermes/logs/ 2>/dev/null && echo \"---SKILLS COUNT---\" && ls ~/.hermes/skills/ 2>/dev/null | wc -l",
+          "count": 1
+        },
+        {
+          "command": "git diff --stat HEAD 2>&1 | head -20 && echo \"---\" && cat ~/.hermes/config.yaml 2>/dev/null | head -50",
+          "count": 1
+        },
+        {
+          "command": "cat ~/.hermes/auth.json 2>/dev/null | python3 -c \"import json,sys; d=json.load(sys.stdin); print('Providers:', list(d.get('providers',{}).keys()) if isinstance(",
+          "count": 1
+        },
+        {
+          "command": "hermes auth status 2>&1 | head -30 || echo \"hermes not on PATH\"",
+          "count": 1
+        },
+        {
+          "command": "cat ~/.hermes/auth.json | python3 -m json.tool 2>&1 | head -60",
+          "count": 1
+        },
+        {
+          "command": "hermes auth status opencode-go 2>&1 | head -10",
+          "count": 1
+        },
+        {
+          "command": "ls ~/.hermes/cron/jobs/ 2>/dev/null; cat ~/.hermes/cron/jobs/*.json 2>/dev/null | head -50; echo \"---\"; ls -la ~/.hermes/memories/ 2>/dev/null",
+          "count": 1
+        },
+        {
+          "command": "tail -80 ~/.hermes/logs/errors.log 2>/dev/null",
+          "count": 1
+        },
+        {
+          "command": "tail -30 ~/.hermes/logs/agent.log 2>/dev/null",
+          "count": 1
+        },
+        {
+          "command": "git diff agent/conversation_loop.py 2>&1 | head -60",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 69.5,
+      "median_extra_runs_for_repeated_cmds": 1.0
+    },
+    {
+      "session_id": "20260619_095922_535c41",
+      "model": "minimax-m3",
+      "api_call_count": 50,
+      "cache_read_tokens": 2439662,
+      "terminal_calls": 39,
+      "unique_commands": 39,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 4,
+      "exit_zero": 35,
+      "exit_unknown": 0,
+      "categories": {
+        "git": 4,
+        "inspect": 16,
+        "test": 11,
+        "search": 2,
+        "mutate": 3,
+        "other": 2,
+        "hermes_cli": 1
+      },
+      "top_commands": [
+        {
+          "command": "git status && git log --oneline -5 && git branch --show-current",
+          "count": 1
+        },
+        {
+          "command": "ls -la && ls scripts/ 2>/dev/null | head -20 && ls tests/ 2>/dev/null | head -20",
+          "count": 1
+        },
+        {
+          "command": "ls tests/skills/ 2>/dev/null && echo \"---\" && ls -la ~/.hermes/plugins/ 2>/dev/null && echo \"---\" && ls -la ~/.hermes/skills/ 2>/dev/null | head -30",
+          "count": 1
+        },
+        {
+          "command": "ls -la ~/.hermes/skills/ 2>/dev/null | head -30 && echo \"---\" && ls -la ~/.hermes/plugins/ 2>/dev/null && echo \"---\" && ls -la ~/.hermes/sandboxes/ 2>/dev/null",
+          "count": 1
+        },
+        {
+          "command": "ls -la ~/.hermes/plugins/ 2>/dev/null; echo \"---\"; ls -la ~/.hermes/skills/clickup-bridge/ 2>/dev/null; echo \"---\"; ls -la ~/.hermes/sandboxes/ 2>/dev/null",
+          "count": 1
+        },
+        {
+          "command": "ls -la venv/bin/python 2>/dev/null || ls -la .venv/bin/python 2>/dev/null; echo \"---\"; python3 --version; which pytest 2>/dev/null || echo \"no pytest on PATH\"",
+          "count": 1
+        },
+        {
+          "command": "ls -la ~/.hermes/hermes-agent/venv/bin/python 2>/dev/null && echo \"venv exists\" || echo \"no venv\"; ls -la ~/.hermes/hermes-agent/venv 2>/dev/null | head -5",
+          "count": 1
+        },
+        {
+          "command": "ls plugins/ 2>/dev/null | head -20 && echo \"---\" && find plugins -maxdepth 2 -name \"plugin.yaml\" -o -name \"__init__.py\" 2>/dev/null | head -10",
+          "count": 1
+        },
+        {
+          "command": "wc -l plugins/disk-cleanup/__init__.py",
+          "count": 1
+        },
+        {
+          "command": "ls hermes_cli/plugins/ 2>/dev/null | head -20",
+          "count": 1
+        },
+        {
+          "command": "mkdir -p ~/.hermes/plugins/clickup-bridge ~/.hermes/sandboxes/clickup-proposals && ls -la ~/.hermes/plugins/ ~/.hermes/sandboxes/",
+          "count": 1
+        },
+        {
+          "command": "python3 -c \"import ast; ast.parse(open('/Users/dylanangloher/.hermes/plugins/clickup-bridge/clickup_client.py').read()); print('syntax ok')\"",
+          "count": 1
+        },
+        {
+          "command": "echo -n \"Read-only ClickUp bridge. No writes without --approved-by-dylan.\" | wc -c echo -n \"Read-only ClickUp bridge. No writes need approval.\" | wc -c echo -n ",
+          "count": 1
+        },
+        {
+          "command": "cd ~/.hermes/plugins/clickup-bridge && python3 -c \" import ast for f in ['__init__.py', 'cli.py', 'clickup_client.py']: ast.parse(open(f).read()) print(f'{f}: s",
+          "count": 1
+        },
+        {
+          "command": "cd ~/.hermes/plugins/clickup-bridge && python3 cli.py --help 2>&1 | head -25 echo \"---\" cd ~/.hermes/plugins/clickup-bridge && python3 cli.py propose-task --lis",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 56.4,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_095920_196c47",
+      "model": "minimax-m3",
+      "api_call_count": 40,
+      "cache_read_tokens": 2342238,
+      "terminal_calls": 25,
+      "unique_commands": 25,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 1,
+      "exit_zero": 24,
+      "exit_unknown": 0,
+      "categories": {
+        "git": 2,
+        "inspect": 7,
+        "test": 4,
+        "mutate": 5,
+        "hermes_cli": 3,
+        "search": 3,
+        "other": 1
+      },
+      "top_commands": [
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-a-stability && git status && echo \"---\" && git log --oneline -5",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-a-stability && git diff --stat growth/p0-baseline-checkpoint HEAD",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-a-stability && ls -la bin/ incidents/ 2>/dev/null; echo \"---\"; ls tests/hermes_cli/ tests/agent/ 2",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-a-stability && cat scripts/run_tests.sh",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-a-stability && ls tests/hermes_cli/ | head -30; echo \"---\"; ls hermes_cli/ | head -30",
+          "count": 1
+        },
+        {
+          "command": "mkdir -p /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-a-stability/bin /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-a-stability/incid",
+          "count": 1
+        },
+        {
+          "command": "ls ~/.hermes/cron/ ~/.hermes/logs/ 2>&1 | head -20; echo \"---errors.log size---\"; wc -l ~/.hermes/logs/errors.log 2>/dev/null || echo \"no errors.log\"",
+          "count": 1
+        },
+        {
+          "command": "ls -la ~/.hermes/cron/ 2>&1; echo \"---\"; ls -la ~/.hermes/cron/output 2>&1 | head -20; echo \"---\"; ls ~/.hermes/ | head -30",
+          "count": 1
+        },
+        {
+          "command": "cat ~/.hermes/logs/errors.log | head -30",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent && ~/.hermes/hermes-agent/venv/bin/python -m hermes_cli auth status opencode-go 2>&1 | head -20; echo \"---\"; ~/.her",
+          "count": 1
+        },
+        {
+          "command": "which hermes 2>&1; echo \"---\"; cat /opt/homebrew/Caskroom/miniconda/base/bin/hermes 2>&1 | head -10; echo \"---\"; ls /opt/homebrew/Caskroom/miniconda/base/bin/ |",
+          "count": 1
+        },
+        {
+          "command": "hermes auth status opencode-go 2>&1 | head -20; echo \"---\"; hermes memory status 2>&1 | head -20",
+          "count": 1
+        },
+        {
+          "command": "chmod +x /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-a-stability/bin/hermes-doctor.sh && bash /Users/dylanangloher/.hermes/hermes-agent/worktrees",
+          "count": 1
+        },
+        {
+          "command": "chmod +x /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-a-stability/bin/hermes-recover.sh && bash /Users/dylanangloher/.hermes/hermes-agent/worktree",
+          "count": 1
+        },
+        {
+          "command": "ps -ef | grep -i \"hermes\" | grep -v grep | head -10",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 48.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_123925_17a2d7",
+      "model": "minimax-m3",
+      "api_call_count": 42,
+      "cache_read_tokens": 1678439,
+      "terminal_calls": 32,
+      "unique_commands": 30,
+      "duplicate_commands": 2,
+      "duplicate_rate": 6.2,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 32,
+      "exit_unknown": 0,
+      "categories": {
+        "inspect": 6,
+        "git": 7,
+        "search": 2,
+        "test": 6,
+        "mutate": 1,
+        "other": 2,
+        "hermes_cli": 8
+      },
+      "top_commands": [
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup && scripts/run_tests.sh tests/skills/test_clickup_bridge.py 2>&1 | tail -15",
+          "count": 2
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup && scripts/run_tests.sh tests/skills/test_clickup_bridge.py 2>&1 | tail -20",
+          "count": 2
+        },
+        {
+          "command": "ls -la /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup/",
+          "count": 1
+        },
+        {
+          "command": "ls /Users/dylanangloher/.hermes/plugins/clickup-bridge/",
+          "count": 1
+        },
+        {
+          "command": "ls /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup/tests/skills/ 2>/dev/null || echo \"no skills test dir in worktree\"; ls /Users/dylananglo",
+          "count": 1
+        },
+        {
+          "command": "git -C /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup status; echo \"---\"; git -C /Users/dylanangloher/.hermes/hermes-agent/worktrees/growt",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup && wc -l tests/skills/test_clickup_bridge.py",
+          "count": 1
+        },
+        {
+          "command": "ls /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup/tests/skills/conftest.py 2>/dev/null && echo \"--- conftest found\" || echo \"no conftest i",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup && grep -c \"^def test_\" tests/skills/test_clickup_bridge.py",
+          "count": 1
+        },
+        {
+          "command": "cp /Users/dylanangloher/.hermes/plugins/clickup-bridge/__init__.py /tmp/clickup_bridge_init_original.py && echo \"snapshot saved to /tmp/clickup_bridge_init_orig",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/plugins/clickup-bridge && python3 -c \" import importlib.util, sys spec = importlib.util.spec_from_file_location('clickup_bridge_",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup && scripts/run_tests.sh tests/skills/test_clickup_bridge.py -- --tb=short 2>&1 | tail -2",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup && hermes plugins enable clickup-bridge 2>&1",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup && hermes plugins list 2>&1 | grep -i clickup",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-b-clickup && hermes -z \"test\" --safe-mode 2>&1 | tail -5",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 46.9,
+      "median_extra_runs_for_repeated_cmds": 1.0
+    },
+    {
+      "session_id": "20260619_100039_607cd4",
+      "model": "minimax-m3",
+      "api_call_count": 33,
+      "cache_read_tokens": 1668402,
+      "terminal_calls": 30,
+      "unique_commands": 30,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 3,
+      "exit_zero": 27,
+      "exit_unknown": 0,
+      "categories": {
+        "git": 3,
+        "inspect": 4,
+        "search": 5,
+        "test": 15,
+        "mutate": 3
+      },
+      "top_commands": [
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && git status && git log --oneline -5 && pwd",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && ls -la && echo \"---\" && ls -la optional-skills/ 2>/dev/null || echo \"no optional-ski",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && grep -ri \"hyperagent\\|growth_engine\" --include=\"*.py\" --include=\"*.md\" -l 2>/dev/nul",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && grep -ri \"prosp\" --include=\"*.py\" --include=\"*.md\" -l 2>/dev/null | head -20",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && ls tests/ 2>/dev/null && echo \"---\" && ls tests/skills/ 2>/dev/null && echo \"---\" &&",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && ls optional-skills/autonomous-ai-agents/ | head && echo \"---\" && find optional-skill",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && cat RECOVERY_BACKLOG.md | head -30 && echo \"---\" && ls optional-skills/communication",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && python3 --version && python3 -c \"import requests; print('requests ok')\" 2>&1 | head ",
+          "count": 1
+        },
+        {
+          "command": "mkdir -p /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect/optional-skills/orchidea-prospector/scripts /Users/dylanangloher/.hermes/hermes-a",
+          "count": 1
+        },
+        {
+          "command": "cd /tmp && mkdir -p orchidea_smoke && cd orchidea_smoke && python3 -c \" import sys, importlib.util for name, path in [ ('find_prospects', '/Users/dylanangloher/",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && scripts/run_tests.sh tests/skills/test_orchidea_prospector.py 2>&1 | tail -40",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && ls ~/.hermes/hermes-agent/venv/bin/ 2>/dev/null | head -20 && echo \"---\" && ls -la .",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && ls -la .venv 2>&1; echo \"---\"; ls venv 2>&1; echo \"---\"; find . -maxdepth 3 -name \"p",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && head -90 scripts/run_tests.sh",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-d-prospect && scripts/run_tests.sh tests/skills/test_telephony_skill.py 2>&1 | tail -10 && echo \"-",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 40.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_100957_dd2e69",
+      "model": "minimax-m3",
+      "api_call_count": 36,
+      "cache_read_tokens": 1374959,
+      "terminal_calls": 12,
+      "unique_commands": 12,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 12,
+      "exit_unknown": 0,
+      "categories": {
+        "git": 1,
+        "test": 5,
+        "inspect": 3,
+        "mutate": 1,
+        "other": 2
+      },
+      "top_commands": [
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline && git status && git log --oneline -5 && git branch --show-current",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline && ls -la optional-skills/ 2>/dev/null; ls -la tests/skills/ 2>/dev/null | head -5; ca",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline && cat optional-skills/DESCRIPTION.md; ls optional-skills/autonomous-ai-agents/ 2>/dev",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline && ls optional-skills/autonomous-ai-agents/grok/ 2>/dev/null && echo \"---\" && cat opti",
+          "count": 1
+        },
+        {
+          "command": "mkdir -p /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline/optional-skills/flockline-reddit/{scripts,tests,references} && mkdir -p /Users/d",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline/optional-skills/flockline-reddit/scripts && python3 -c \"import ast; ast.parse(open('sc",
+          "count": 1
+        },
+        {
+          "command": "python3 -c \"import ast; ast.parse(open('/Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline/optional-skills/flockline-reddit/scripts/pain_poi",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline/optional-skills/flockline-reddit/scripts && for f in *.py; do python3 -c \"import ast; ",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline && python3 -m unittest tests.skills.test_flockline_reddit -v 2>&1 | tail -60",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline && python3 -m unittest tests.skills.test_flockline_reddit -v 2>&1 | head -120",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline && python3 -m unittest tests.skills.test_flockline_reddit -v 2>&1 | tail -50",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-e-flockline && scripts/run_tests.sh tests/skills/test_flockline_reddit.py 2>&1 | tail -15",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 33.3,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_101202_4d8992",
+      "model": "minimax-m3",
+      "api_call_count": 21,
+      "cache_read_tokens": 813256,
+      "terminal_calls": 26,
+      "unique_commands": 26,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 2,
+      "exit_zero": 24,
+      "exit_unknown": 0,
+      "categories": {
+        "git": 3,
+        "inspect": 9,
+        "test": 5,
+        "search": 6,
+        "mutate": 2,
+        "other": 1
+      },
+      "top_commands": [
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-f-linkedin-jobs && git status && echo \"---BRANCH---\" && git branch --show-current && echo \"---LOG-",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-f-linkedin-jobs && ls -la | head -40 && echo \"---SCRIPTS---\" && ls scripts/ 2>/dev/null | head -20",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-f-linkedin-jobs && ls scripts/run_tests.sh && echo \"---\" && cat scripts/run_tests.sh | head -40 &&",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-f-linkedin-jobs && ls optional-skills/ && echo \"---SAMPLE SKILL---\" && ls optional-skills/email/ 2",
+          "count": 1
+        },
+        {
+          "command": "cd /Users/dylanangloher/.hermes/hermes-agent/worktrees/growth-f-linkedin-jobs && ls optional-skills/email/agentmail/ && echo \"---SKILL.md sample---\" && cat opti",
+          "count": 1
+        },
+        {
+          "command": "ls -la \"/Users/dylanangloher/Documents/Obsidian Vault/\" 2>/dev/null | head -20 && echo \"---Growth OS---\" && find \"/Users/dylanangloher/Documents/Obsidian Vault/",
+          "count": 1
+        },
+        {
+          "command": "ls -la ~/.hermes/sandboxes/ 2>/dev/null || echo \"no sandboxes dir\" && echo \"---\" && ls -la ~/.hermes/ 2>/dev/null | head -30",
+          "count": 1
+        },
+        {
+          "command": "cat \"/Users/dylanangloher/Documents/Obsidian Vault/Growth OS/Business Context/Personal OS.md\" 2>/dev/null | head -50 && echo \"---OPERATING PRINCIPLES---\" && cat",
+          "count": 1
+        },
+        {
+          "command": "find \"/Users/dylanangloher/Documents/Obsidian Vault/Growth OS\" -name \"*.md\" | xargs grep -l -i \"linkedin\\|job\\|side gig\" 2>/dev/null | head -10",
+          "count": 1
+        },
+        {
+          "command": "ls \"/Users/dylanangloher/Documents/\" 2>/dev/null | head -30 && echo \"---\" && ls \"/Users/dylanangloher/Documents/Obsidian Vault\" 2>/dev/null | head -30",
+          "count": 1
+        },
+        {
+          "command": "ls -la /Users/dylanangloher/ 2>/dev/null | grep -iE \"resume|cv|jobs|cover|linkedin|application\" | head -20 && echo \"---\" && find /Users/dylanangloher -maxdepth ",
+          "count": 1
+        },
+        {
+          "command": "ls -la \"/Users/dylanangloher/Documents/Job Hunting/\" 2>/dev/null && echo \"---DESKTOP RESUMES---\" && ls -la \"/Users/dylanangloher/Desktop/Dylan Resumes 2026/\" 2>",
+          "count": 1
+        },
+        {
+          "command": "find \"/Users/dylanangloher/Documents/Job Hunting\" -maxdepth 3 -type f 2>/dev/null | head -40 && echo \"---DESKTOP JOB FOLDERS---\" && find /Users/dylanangloher/De",
+          "count": 1
+        },
+        {
+          "command": "ls /Users/dylanangloher/.hermes/skills/ 2>/dev/null | head -20 && echo \"---\" && ls /Users/dylanangloher/.hermes/skills/ 2>/dev/null | grep -iE \"linkedin|job|cov",
+          "count": 1
+        },
+        {
+          "command": "ls \"/Users/dylanangloher/Desktop/Dylan Resumes 2026/Growth marketing/\" 2>/dev/null && echo \"---\" && ls \"/Users/dylanangloher/Desktop/Dylan Resumes 2026/Head of ",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 69.2,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_100133_aa2a31",
+      "model": "minimax-m3",
+      "api_call_count": 34,
+      "cache_read_tokens": 707322,
+      "terminal_calls": 11,
+      "unique_commands": 10,
+      "duplicate_commands": 1,
+      "duplicate_rate": 9.1,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 11,
+      "exit_unknown": 0,
+      "categories": {
+        "inspect": 5,
+        "mutate": 1,
+        "search": 5
+      },
+      "top_commands": [
+        {
+          "command": "wc -w ~/Documents/Obsidian\\ Vault/Growth\\ OS/*.md ~/Documents/Obsidian\\ Vault/Growth\\ OS/Business\\ Context/*.md ~/Documents/Obsidian\\ Vault/Growth\\ OS/Templates",
+          "count": 2
+        },
+        {
+          "command": "ls -la ~/Documents/Obsidian\\ Vault/ 2>/dev/null && echo \"---\" && ls -la ~/Documents/Obsidian\\ Vault/Growth\\ OS/ 2>/dev/null || echo \"Growth OS does not exist ye",
+          "count": 1
+        },
+        {
+          "command": "date \"+%Y-%m-%d\"",
+          "count": 1
+        },
+        {
+          "command": "mkdir -p ~/Documents/Obsidian\\ Vault/Growth\\ OS/Business\\ Context ~/Documents/Obsidian\\ Vault/Growth\\ OS/Templates && ls -la ~/Documents/Obsidian\\ Vault/Growth\\",
+          "count": 1
+        },
+        {
+          "command": "find ~/Documents/Obsidian\\ Vault/Growth\\ OS -name \"*.md\" -o -name \"*.patch\" | sort",
+          "count": 1
+        },
+        {
+          "command": "wc -w ~/Documents/Obsidian\\ Vault/Growth\\ OS/Weekly\\ Review.md",
+          "count": 1
+        },
+        {
+          "command": "echo \"--- Forbidden words check in Lyra.md ---\" grep -inE \"deprecat|dead|archiv|shut down|cancel\" ~/Documents/Obsidian\\ Vault/Growth\\ OS/Business\\ Context/Lyra.",
+          "count": 1
+        },
+        {
+          "command": "echo \"--- Line 17 ---\" sed -n '17p' ~/Documents/Obsidian\\ Vault/Growth\\ OS/Business\\ Context/Lyra.md echo echo \"--- Actual matches in context ---\" grep -inE \"de",
+          "count": 1
+        },
+        {
+          "command": "echo \"--- File count ---\" find ~/Documents/Obsidian\\ Vault/Growth\\ OS -type f \\( -name \"*.md\" -o -name \"*.patch\" \\) | wc -l echo echo \"--- Directory tree ---\" f",
+          "count": 1
+        },
+        {
+          "command": "echo \"--- Forbidden words in Lyra (case-sensitive, word boundaries) ---\" if grep -qE \"\\\\b(deprecat(ed|ion|ing)?|dead|archiv(ed|ing|al)|shut down|cancel(s|led|la",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 90.9,
+      "median_extra_runs_for_repeated_cmds": 1.0
+    },
+    {
+      "session_id": "20260618_215521_7587e6",
+      "model": "minimax-m3",
+      "api_call_count": 6,
+      "cache_read_tokens": 177312,
+      "terminal_calls": 2,
+      "unique_commands": 2,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 2,
+      "exit_unknown": 0,
+      "categories": {
+        "inspect": 1,
+        "search": 1
+      },
+      "top_commands": [
+        {
+          "command": "ls -la ~/.hermes/ 2>&1 | head -30",
+          "count": 1
+        },
+        {
+          "command": "ls -la ~/.hermes/memories/ 2>&1; echo \"---\"; find ~/.hermes/memories/ -type f 2>&1 | head -20",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 100.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_090351_b95dd2",
+      "model": "minimax-m3",
+      "api_call_count": 3,
+      "cache_read_tokens": 108309,
+      "terminal_calls": 2,
+      "unique_commands": 2,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 2,
+      "exit_unknown": 0,
+      "categories": {
+        "mutate": 1,
+        "inspect": 1
+      },
+      "top_commands": [
+        {
+          "command": "date -u +\"%Y-%m-%dT%H:%M:%SZ\" > /tmp/hermes-desktop-provider-fix.md && cat /tmp/hermes-desktop-provider-fix.md",
+          "count": 1
+        },
+        {
+          "command": "ls -la /tmp/hermes-desktop-provider-fix.md",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 50.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_080940_8eecf9",
+      "model": "minimax-m3",
+      "api_call_count": 4,
+      "cache_read_tokens": 105505,
+      "terminal_calls": 2,
+      "unique_commands": 2,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 2,
+      "exit_unknown": 0,
+      "categories": {
+        "mutate": 1,
+        "search": 1
+      },
+      "top_commands": [
+        {
+          "command": "pwd > /tmp/hermes-execution-validation-command.txt",
+          "count": 1
+        },
+        {
+          "command": "ls -la /tmp/hermes-execution-validation-*.md /tmp/hermes-execution-validation-*.txt 2>&1 | grep -v \"^total\"",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 50.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_083257_041ca1",
+      "model": "minimax-m3",
+      "api_call_count": 4,
+      "cache_read_tokens": 104915,
+      "terminal_calls": 1,
+      "unique_commands": 1,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 1,
+      "exit_unknown": 0,
+      "categories": {
+        "inspect": 1
+      },
+      "top_commands": [
+        {
+          "command": "date -u \"+%Y-%m-%d %H:%M:%S UTC\"",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 100.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_091715_559cd7",
+      "model": "minimax-m3",
+      "api_call_count": 3,
+      "cache_read_tokens": 37948,
+      "terminal_calls": 0,
+      "unique_commands": 0,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 0,
+      "exit_unknown": 0,
+      "categories": {},
+      "top_commands": [],
+      "inspect_search_git_share": 0.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260618_223232_fcd83a",
+      "model": "minimax-m3",
+      "api_call_count": 2,
+      "cache_read_tokens": 36196,
+      "terminal_calls": 0,
+      "unique_commands": 0,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 0,
+      "exit_unknown": 0,
+      "categories": {},
+      "top_commands": [],
+      "inspect_search_git_share": 0.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260618_213748_95276f",
+      "model": "minimax-m3",
+      "api_call_count": 2,
+      "cache_read_tokens": 35684,
+      "terminal_calls": 1,
+      "unique_commands": 1,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 1,
+      "exit_unknown": 0,
+      "categories": {
+        "mutate": 1
+      },
+      "top_commands": [
+        {
+          "command": "printf 'Hermes default model artifact test\\n%s\\n' \"$(date)\" > /tmp/hermes-default-model-artifact.md && cat /tmp/hermes-default-model-artifact.md",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 0.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260618_213147_9f3fcb",
+      "model": "minimax-m3",
+      "api_call_count": 2,
+      "cache_read_tokens": 35241,
+      "terminal_calls": 1,
+      "unique_commands": 1,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 1,
+      "exit_unknown": 0,
+      "categories": {
+        "mutate": 1
+      },
+      "top_commands": [
+        {
+          "command": "DATE_STR=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\") && printf 'Hermes artifact delivery test\\n%s\\n' \"$DATE_STR\" > /tmp/hermes-runtime-artifact.md && cat /tmp/hermes-runti",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 0.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260618_215330_54f355",
+      "model": "minimax-m3",
+      "api_call_count": 2,
+      "cache_read_tokens": 34927,
+      "terminal_calls": 1,
+      "unique_commands": 1,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 1,
+      "exit_unknown": 0,
+      "categories": {
+        "mutate": 1
+      },
+      "top_commands": [
+        {
+          "command": "DATE=$(date) && printf 'Hermes action evidence guard live test\\n%s\\n' \"$DATE\" > /tmp/hermes-guard-live-test.md && cat /tmp/hermes-guard-live-test.md",
+          "count": 1
+        }
+      ],
+      "inspect_search_git_share": 0.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "20260619_081052_19530b",
+      "model": "minimax-m3",
+      "api_call_count": 1,
+      "cache_read_tokens": 33522,
+      "terminal_calls": 0,
+      "unique_commands": 0,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 0,
+      "exit_unknown": 0,
+      "categories": {},
+      "top_commands": [],
+      "inspect_search_git_share": 0.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "cron_34b29b05add8_20260717_092113",
+      "model": "glm-5.2",
+      "api_call_count": 2,
+      "cache_read_tokens": 23488,
+      "terminal_calls": 0,
+      "unique_commands": 0,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 0,
+      "exit_unknown": 0,
+      "categories": {},
+      "top_commands": [],
+      "inspect_search_git_share": 0.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    },
+    {
+      "session_id": "cron_28295d7a4ac3_20260717_092113",
+      "model": "glm-5.2",
+      "api_call_count": 1,
+      "cache_read_tokens": 23040,
+      "terminal_calls": 0,
+      "unique_commands": 0,
+      "duplicate_commands": 0,
+      "duplicate_rate": 0.0,
+      "retry_events": 0,
+      "retry_rate": 0.0,
+      "non_zero_exits": 0,
+      "exit_zero": 0,
+      "exit_unknown": 0,
+      "categories": {},
+      "top_commands": [],
+      "inspect_search_git_share": 0.0,
+      "median_extra_runs_for_repeated_cmds": 0.0
+    }
+  ],
+  "aggregate": {
+    "sessions": 20,
+    "terminal_calls": 457,
+    "duplicate_commands": 5,
+    "duplicate_rate": 1.1,
+    "retry_events": 0,
+    "retry_rate": 0.0,
+    "exit_zero": 436,
+    "non_zero_exits": 21,
+    "success_rate": 95.4,
+    "categories": {
+      "git": 83,
+      "inspect": 140,
+      "hermes_cli": 29,
+      "search": 64,
+      "test": 81,
+      "mutate": 28,
+      "other": 9,
+      "ssh": 23
+    },
+    "inspect_search_git_share": 62.8,
+    "verdict": "TERMINAL_AS_CHAT \u2014 majority inspect/search/git via shell; consider read_file/search_files or terminal macros"
+  }
+}

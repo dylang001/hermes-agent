@@ -1,0 +1,20 @@
+{
+  "phase": "track-a-cache-control-ab",
+  "measured_at": "2026-07-19T06:28:23.569197+00:00",
+  "run_id": "6df108d4b1",
+  "model": "minimax-m3",
+  "provider": "opencode-go",
+  "messages_url": "https://opencode.ai/zen/go/v1/messages",
+  "turns": 20,
+  "provider_blocked": true,
+  "provider_error": "HTTP 429: {'type': 'error', 'error': {'type': 'GoUsageLimitError', 'message': 'Monthly usage limit reached. Resets in 16 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7AS",
+  "policy_after_patch": {
+    "should_cache": true,
+    "native_layout": true
+  },
+  "decision": {
+    "decision": "blocked",
+    "keep_markers": true,
+    "reason": "OpenCode Go unavailable (quota/500). Policy patch kept (correct for MiniMax Anthropic wire). A/B not measured."
+  }
+}

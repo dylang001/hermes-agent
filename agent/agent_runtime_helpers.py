@@ -1532,42 +1532,28 @@ def anthropic_prompt_cache_policy(
     api_mode: Optional[str] = None,
     model: Optional[str] = None,
 ) -> tuple[bool, bool]:
-    """Decide whether to apply Anthropic prompt caching and which layout to use.
+    """Decide whether to emit Anthropic ``cache_control`` markers.
 
-    Returns ``(should_cache, use_native_layout)``:
-      * ``should_cache`` — inject ``cache_control`` breakpoints for this
-        request (applies to OpenRouter Claude, native Anthropic, and
-        third-party gateways that speak the native Anthropic protocol).
-      * ``use_native_layout`` — place markers on the *inner* content
-        blocks (native Anthropic accepts and requires this layout);
-        when False markers go on the message envelope (OpenRouter and
-        OpenAI-wire proxies expect the looser layout).
+    Thin wrapper over ``agent.prompt_cache_capabilities`` — capability is
+    transport/provider based (``NONE`` / ``AUTO`` / ``EXPLICIT``), not
+    model-slug hardcoding. Returns legacy
+    ``(should_cache, use_native_layout)`` for call sites.
 
-    Third-party providers using the native Anthropic transport
-    (``api_mode == 'anthropic_messages'`` + Claude-named model) get
-    caching with the native layout so they benefit from the same
-    cost reduction as direct Anthropic callers, provided their
-    gateway implements the Anthropic cache_control contract
-    (MiniMax, Zhipu GLM, LiteLLM's Anthropic proxy mode all do).
-
-    Qwen / Alibaba-family models on OpenCode, OpenCode Go, and direct
-    Alibaba (DashScope) also honour Anthropic-style ``cache_control``
-    markers on OpenAI-wire chat completions. Upstream pi-mono #3392 /
-    pi #3393 documented this for opencode-go Qwen. Without markers
-    these providers serve zero cache hits, re-billing the full prompt
-    on every turn.
+    MoA: resolve against the preset aggregator slot (the acting provider),
+    not the virtual ``moa`` label.
     """
+    from agent.prompt_cache_capabilities import (
+        capability_to_policy_tuple,
+        no_cache,
+        resolve_prompt_cache_capability,
+    )
+
     eff_provider = (provider if provider is not None else agent.provider) or ""
     eff_base_url = base_url if base_url is not None else (agent.base_url or "")
     eff_api_mode = api_mode if api_mode is not None else (agent.api_mode or "")
     eff_model = (model if model is not None else agent.model) or ""
 
-    # MoA virtual provider: the agent's model/provider are the preset name and
-    # "moa" — neither matches any caching branch, so the ACTING AGGREGATOR
-    # (often Claude on OpenRouter) silently lost prompt caching entirely
-    # (measured: 85% cache share solo vs 2% on the identical model via MoA —
-    # tens of millions of re-billed input tokens per benchmark run). Resolve
-    # the policy from the preset's real aggregator slot instead.
+    # MoA virtual provider: resolve from the acting aggregator slot.
     if eff_provider.strip().lower() == "moa":
         try:
             from hermes_cli.config import load_config as _load_moa_cfg
@@ -1600,84 +1586,20 @@ def anthropic_prompt_cache_policy(
                 )
         except Exception as _moa_exc:  # pragma: no cover - defensive
             logger.debug("MoA aggregator cache-policy resolution failed: %s", _moa_exc)
-        return False, False
+        return capability_to_policy_tuple(no_cache("moa:unresolved"))
 
-    model_lower = eff_model.lower()
-    provider_lower = eff_provider.lower()
-    is_claude = "claude" in model_lower
-    # Kimi / Moonshot family via OpenRouter: same cache_control wire format
-    # as Claude on OpenRouter (envelope layout).  Without this branch
-    # moonshotai/kimi-k2.6 falls through to (False, False), serving ~1%
-    # cache hits on 64K-token prompts and re-billing the full prompt on
-    # every turn.  Observed within-turn progression with cache enabled:
-    # 1% → 67% → 84% → 97% (#25970).  Reuses the canonical family matcher
-    # (covers bare k1./k2./k25 release slugs the substring check missed).
-    from agent.anthropic_adapter import _model_name_is_kimi_family
-    is_kimi = (
-        _model_name_is_kimi_family(eff_model) or "moonshot" in model_lower
+    cap = resolve_prompt_cache_capability(
+        provider=eff_provider,
+        base_url=eff_base_url,
+        api_mode=eff_api_mode,
+        model=eff_model,
     )
-    is_openrouter = base_url_host_matches(eff_base_url, "openrouter.ai")
-    # Nous Portal proxies to OpenRouter behind the scenes — identical
-    # OpenAI-wire envelope cache_control semantics. Treat it as an
-    # OpenRouter-equivalent endpoint for caching layout purposes.
-    is_nous_portal = "nousresearch" in eff_base_url.lower()
-    is_anthropic_wire = eff_api_mode == "anthropic_messages"
-    is_native_anthropic = (
-        is_anthropic_wire
-        and (eff_provider == "anthropic" or base_url_hostname(eff_base_url) == "api.anthropic.com")
-    )
-
-    if is_native_anthropic:
-        return True, True
-    if (is_openrouter or is_nous_portal) and (is_claude or is_kimi):
-        return True, False
-    # Nous Portal Qwen (e.g. qwen3.6-plus) takes the same envelope-layout
-    # cache_control path as Portal Claude. Portal proxies to OpenRouter
-    # and the upstream Qwen route accepts cache_control markers; without
-    # this branch the alibaba-family check below only matches
-    # provider=opencode/alibaba and Portal traffic falls through to
-    # (False, False), serving 0% cache hits and re-billing the full
-    # prompt on every turn.
-    if is_nous_portal and "qwen" in model_lower:
-        return True, False
-    if is_anthropic_wire and is_claude:
-        # Third-party Anthropic-compatible gateway.
-        return True, True
-
-    # MiniMax on its Anthropic-compatible endpoint serves its own
-    # model family (MiniMax-M2.7, M2.5, M2.1, M2) with documented
-    # cache_control support (0.1× read pricing, 5-minute TTL).  The
-    # blanket is_claude gate above excludes these — opt them in
-    # explicitly via provider id or host match so users on
-    # provider=minimax / minimax-cn (or custom endpoints pointing at
-    # api.minimax.io/anthropic / api.minimaxi.com/anthropic) get the
-    # same cost reduction as Claude traffic.
-    # Docs: https://platform.minimax.io/docs/api-reference/anthropic-api-compatible-cache
-    if is_anthropic_wire:
-        is_minimax_provider = provider_lower in {"minimax", "minimax-cn"}
-        is_minimax_host = (
-            base_url_host_matches(eff_base_url, "api.minimax.io")
-            or base_url_host_matches(eff_base_url, "api.minimaxi.com")
-        )
-        if is_minimax_provider or is_minimax_host:
-            return True, True
-
-    # Qwen/Alibaba on OpenCode (Zen/Go) and native DashScope: OpenAI-wire
-    # transport that accepts Anthropic-style cache_control markers and
-    # rewards them with real cache hits.  Without this branch
-    # qwen3.6-plus on opencode-go reports 0% cached tokens and burns
-    # through the subscription on every turn.
-    model_is_qwen = "qwen" in model_lower
-    provider_is_alibaba_family = provider_lower in {
-        "opencode", "opencode-zen", "opencode-go", "alibaba",
-    }
-    if provider_is_alibaba_family and model_is_qwen:
-        # Envelope layout (native_anthropic=False): markers on inner
-        # content parts, not top-level tool messages.  Matches
-        # pi-mono's "alibaba" cacheControlFormat.
-        return True, False
-
-    return False, False
+    # Stash for session telemetry / insights (best-effort).
+    try:
+        agent._prompt_cache_capability = cap
+    except Exception:
+        pass
+    return capability_to_policy_tuple(cap)
 
 
 

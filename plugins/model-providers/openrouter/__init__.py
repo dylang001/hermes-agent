@@ -47,6 +47,21 @@ def _anthropic_reasoning_is_mandatory(model: str | None) -> bool:
 class OpenRouterProfile(ProviderProfile):
     """OpenRouter aggregator — provider preferences, reasoning config passthrough."""
 
+    def prompt_cache_capability(
+        self,
+        *,
+        api_mode: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ):
+        """OpenAI wire: EXPLICIT envelope only for families that honour it."""
+        from agent.prompt_cache_capabilities import aggregator_openai_wire_capability
+
+        return aggregator_openai_wire_capability(
+            model=(model or "").strip().lower(),
+            source="openrouter",
+        )
+
     def fetch_models(
         self,
         *,

@@ -11,6 +11,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent.prompt_cache_capabilities import (
+    PromptCacheCapability,
+    auto_cache,
+    explicit_envelope,
+    explicit_native,
+)
 from providers import register_provider
 from providers.base import ProviderProfile
 
@@ -48,6 +54,29 @@ class OpenCodeGoProfile(ProviderProfile):
     _MODEL_MAX_TOKENS: dict[str, int] = {
         "mimo-v2.5-pro": 131072,
     }
+
+    def prompt_cache_capability(
+        self,
+        *,
+        api_mode: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> PromptCacheCapability | None:
+        """Cache mode is transport-driven on OpenCode Go.
+
+        * ``anthropic_messages`` → EXPLICIT native (MiniMax M3 etc. on
+          ``/zen/go/v1/messages``).
+        * ``chat_completions`` + Qwen family → EXPLICIT envelope
+          (pi-mono #3392 / #3393).
+        * other OpenAI-wire models → AUTO (no Hermes markers).
+        """
+        mode = (api_mode or "").strip().lower()
+        flat = _flat_model_name(model)
+        if mode == "anthropic_messages":
+            return explicit_native("profile:opencode-go+anthropic_messages")
+        if "qwen" in flat:
+            return explicit_envelope("profile:opencode-go+qwen_openai_wire")
+        return auto_cache("profile:opencode-go+openai_wire_auto")
 
     def get_max_tokens(self, model: str | None) -> int | None:
         cap = self._MODEL_MAX_TOKENS.get(_flat_model_name(model))
@@ -127,7 +156,26 @@ class OpenCodeGoProfile(ProviderProfile):
         return extra_body, top_level
 
 
-opencode_zen = ProviderProfile(
+class OpenCodeZenProfile(ProviderProfile):
+    """OpenCode Zen — Anthropic Messages gets explicit markers; else auto."""
+
+    def prompt_cache_capability(
+        self,
+        *,
+        api_mode: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> PromptCacheCapability | None:
+        mode = (api_mode or "").strip().lower()
+        flat = _flat_model_name(model)
+        if mode == "anthropic_messages":
+            return explicit_native("profile:opencode-zen+anthropic_messages")
+        if "qwen" in flat:
+            return explicit_envelope("profile:opencode-zen+qwen_openai_wire")
+        return auto_cache("profile:opencode-zen+openai_wire_auto")
+
+
+opencode_zen = OpenCodeZenProfile(
     name="opencode-zen",
     aliases=("opencode", "opencode_zen", "zen"),
     env_vars=("OPENCODE_ZEN_API_KEY",),

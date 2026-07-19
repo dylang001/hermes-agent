@@ -1,0 +1,743 @@
+{
+  "phase": "context-cost-phase1-live",
+  "measured_at": "2026-07-17T14:40:40.001797+00:00",
+  "provider": "opencode-go",
+  "model": "minimax-m3",
+  "api_key_redacted": "***v1Xs",
+  "hermes_home": "/Users/dylanangloher/.hermes",
+  "workspace": "/Users/dylanangloher/.hermes/hermes-agent",
+  "offline_baseline_source": "/Users/dylanangloher/.hermes/backups/context-cost-phase1-20260717/prompt-size-baseline.json",
+  "offline_scenario_source": "/Users/dylanangloher/.hermes/backups/context-cost-phase1-20260717/phase1-scenario-report.json",
+  "cost_note": "OpenCode Go is subscription-included; billing_amount_usd is usually 0. est_cost_usd_phase1_rate_input_only uses $0.4/MTok input to compare with offline Phase 1.",
+  "prompt_size_live": {
+    "platform": "cli",
+    "model": "minimax-m3",
+    "system_prompt": {
+      "chars": 32898,
+      "bytes": 33417
+    },
+    "skills_index": {
+      "chars": 13209,
+      "bytes": 13255
+    },
+    "memory": {
+      "chars": 2207,
+      "bytes": 2409
+    },
+    "user_profile": {
+      "chars": 1264,
+      "bytes": 1457
+    },
+    "tools": {
+      "count": 30,
+      "json_bytes": 47826
+    },
+    "sections": [
+      [
+        "stable (identity/guidance/skills)",
+        25701,
+        25811
+      ],
+      [
+        "context (AGENTS.md/cwd files)",
+        3657,
+        3671
+      ],
+      [
+        "volatile (memory/profile/timestamp)",
+        3536,
+        3931
+      ]
+    ],
+    "system_tokens_est": 8224,
+    "tools_tokens_est": 11956,
+    "fixed_floor_tokens_est": 20181,
+    "context_chars": 3657
+  },
+  "scenarios": [
+    {
+      "name": "1. simple conversational",
+      "session_id": "phase1-live-c2219fe247ea",
+      "model": "minimax-m3",
+      "provider": "opencode-go",
+      "wall_latency_s": 3.179,
+      "turns": 1,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 0,
+        "api_call_count": 1,
+        "est_cost_usd_offline_rate": 0.0,
+        "billing_status": "unknown",
+        "billing_label": "n/a",
+        "billing_amount_usd": null,
+        "billing_notes": [],
+        "est_cost_usd_phase1_rate_input_only": 0.0
+      },
+      "per_turn": [
+        {
+          "turn": 1,
+          "prompt": "What is Hermes in one sentence?",
+          "latency_s": 1.761,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        }
+      ],
+      "governor_events": [
+        {
+          "tokens_before": 18535,
+          "tokens_after": 18535,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        }
+      ],
+      "governor_log_lines": [],
+      "governor_fired": false,
+      "governor_blocked": false,
+      "capability_ok": false,
+      "response_previews": [
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go"
+      ],
+      "errors": [],
+      "db_usage": null,
+      "request_dump_preflight": {
+        "dump_file": "request_dump_phase1-live-c2219fe247ea_20260717_164024_169167.json",
+        "model": "minimax-m3",
+        "msg_count": 2,
+        "tool_count": 30,
+        "system_chars": 29445,
+        "tools_json_bytes": 48027,
+        "est_request_tokens_rough": 18535,
+        "url": "https://opencode.ai/zen/go/v1/chat/completions"
+      },
+      "provider_error": "GoUsageLimitError monthly",
+      "provider_usage_available": false,
+      "governor_summary": {
+        "calls": 1,
+        "first_tokens_before": 18535,
+        "first_tokens_after": 18535,
+        "any_actions": false,
+        "any_blocked": false,
+        "all_actions": []
+      },
+      "offline_before": {
+        "name": "1. simple conversational BEFORE",
+        "input_tokens_est": 36824,
+        "tokens_before_gov": 36824,
+        "tokens_after_gov": 36824,
+        "governor_actions": [],
+        "blocked": false,
+        "msg_count": 2,
+        "est_cost_usd": 0.01473,
+        "cache_read_tokens": "n/a (offline \u2014 no provider call)",
+        "output_tokens": "n/a (offline \u2014 no provider call)",
+        "latency_ms": "n/a (offline \u2014 no provider call)"
+      },
+      "offline_after_estimate": {
+        "name": "1. simple conversational AFTER",
+        "input_tokens_est": 19418,
+        "tokens_before_gov": 19418,
+        "tokens_after_gov": 19418,
+        "governor_actions": [],
+        "blocked": false,
+        "msg_count": 2,
+        "est_cost_usd": 0.007767,
+        "cache_read_tokens": "n/a (offline \u2014 no provider call)",
+        "output_tokens": "n/a (offline \u2014 no provider call)",
+        "latency_ms": "n/a (offline \u2014 no provider call)"
+      },
+      "live_provider_usage": {
+        "input_tokens": null,
+        "cache_read_tokens": null,
+        "output_tokens": null,
+        "reason": "HTTP 429 GoUsageLimitError \u2014 no successful completion"
+      },
+      "live_latency_s": 3.179,
+      "live_governor_input_tokens_est": 18535,
+      "offline_before_input": 36824,
+      "offline_after_input": 19418,
+      "delta_vs_offline_before": -18289
+    },
+    {
+      "name": "2. ten-turn conversation",
+      "session_id": "phase1-live-9209d5c6ed53",
+      "model": "minimax-m3",
+      "provider": "opencode-go",
+      "wall_latency_s": 12.48,
+      "turns": 10,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 0,
+        "api_call_count": 1,
+        "est_cost_usd_offline_rate": 0.0,
+        "billing_status": "unknown",
+        "billing_label": "n/a",
+        "billing_amount_usd": null,
+        "billing_notes": [],
+        "est_cost_usd_phase1_rate_input_only": 0.0
+      },
+      "per_turn": [
+        {
+          "turn": 1,
+          "prompt": "Reply with just the number 1.",
+          "latency_s": 1.439,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        },
+        {
+          "turn": 2,
+          "prompt": "What is 2+2? One number only.",
+          "latency_s": 1.108,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        },
+        {
+          "turn": 3,
+          "prompt": "Name one color.",
+          "latency_s": 1.248,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        },
+        {
+          "turn": 4,
+          "prompt": "Say OK.",
+          "latency_s": 1.176,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        },
+        {
+          "turn": 5,
+          "prompt": "What day comes after Monday? One word.",
+          "latency_s": 1.225,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        },
+        {
+          "turn": 6,
+          "prompt": "Reply with the word ping.",
+          "latency_s": 1.177,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        },
+        {
+          "turn": 7,
+          "prompt": "Capital of France? One word.",
+          "latency_s": 1.183,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        },
+        {
+          "turn": 8,
+          "prompt": "Reply with yes.",
+          "latency_s": 1.279,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        },
+        {
+          "turn": 9,
+          "prompt": "How many legs does a dog have? One number.",
+          "latency_s": 1.162,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        },
+        {
+          "turn": 10,
+          "prompt": "End with the word done.",
+          "latency_s": 1.422,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        }
+      ],
+      "governor_events": [
+        {
+          "tokens_before": 18534,
+          "tokens_after": 18534,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        },
+        {
+          "tokens_before": 18542,
+          "tokens_after": 18542,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        },
+        {
+          "tokens_before": 18547,
+          "tokens_after": 18547,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        },
+        {
+          "tokens_before": 18550,
+          "tokens_after": 18550,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        },
+        {
+          "tokens_before": 18560,
+          "tokens_after": 18560,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        },
+        {
+          "tokens_before": 18568,
+          "tokens_after": 18568,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        },
+        {
+          "tokens_before": 18576,
+          "tokens_after": 18576,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        },
+        {
+          "tokens_before": 18580,
+          "tokens_after": 18580,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        },
+        {
+          "tokens_before": 18592,
+          "tokens_after": 18592,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        },
+        {
+          "tokens_before": 18599,
+          "tokens_after": 18599,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        }
+      ],
+      "governor_log_lines": [],
+      "governor_fired": false,
+      "governor_blocked": false,
+      "capability_ok": false,
+      "response_previews": [
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go"
+      ],
+      "errors": [],
+      "db_usage": null,
+      "request_dump_preflight": {
+        "dump_file": "request_dump_phase1-live-9209d5c6ed53_20260717_164025_671556.json",
+        "model": "minimax-m3",
+        "msg_count": 2,
+        "tool_count": 30,
+        "system_chars": 29445,
+        "tools_json_bytes": 48027,
+        "est_request_tokens_rough": 18534,
+        "url": "https://opencode.ai/zen/go/v1/chat/completions"
+      },
+      "provider_error": "GoUsageLimitError monthly",
+      "provider_usage_available": false,
+      "governor_summary": {
+        "calls": 10,
+        "first_tokens_before": 18534,
+        "first_tokens_after": 18534,
+        "any_actions": false,
+        "any_blocked": false,
+        "all_actions": []
+      },
+      "offline_before": {
+        "name": "2. ten-turn conversation BEFORE",
+        "input_tokens_est": 37224,
+        "tokens_before_gov": 37224,
+        "tokens_after_gov": 37224,
+        "governor_actions": [],
+        "blocked": false,
+        "msg_count": 22,
+        "est_cost_usd": 0.01489,
+        "cache_read_tokens": "n/a (offline \u2014 no provider call)",
+        "output_tokens": "n/a (offline \u2014 no provider call)",
+        "latency_ms": "n/a (offline \u2014 no provider call)"
+      },
+      "offline_after_estimate": {
+        "name": "2. ten-turn conversation AFTER",
+        "input_tokens_est": 19817,
+        "tokens_before_gov": 19817,
+        "tokens_after_gov": 19817,
+        "governor_actions": [],
+        "blocked": false,
+        "msg_count": 22,
+        "est_cost_usd": 0.007927,
+        "cache_read_tokens": "n/a (offline \u2014 no provider call)",
+        "output_tokens": "n/a (offline \u2014 no provider call)",
+        "latency_ms": "n/a (offline \u2014 no provider call)"
+      },
+      "live_provider_usage": {
+        "input_tokens": null,
+        "cache_read_tokens": null,
+        "output_tokens": null,
+        "reason": "HTTP 429 GoUsageLimitError \u2014 no successful completion"
+      },
+      "live_latency_s": 12.48,
+      "live_governor_input_tokens_est": 18534,
+      "offline_before_input": 37224,
+      "offline_after_input": 19817,
+      "delta_vs_offline_before": -18690
+    },
+    {
+      "name": "3. one coding task",
+      "session_id": "phase1-live-b501848bec31",
+      "model": "minimax-m3",
+      "provider": "opencode-go",
+      "wall_latency_s": 1.936,
+      "turns": 1,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 0,
+        "api_call_count": 1,
+        "est_cost_usd_offline_rate": 0.0,
+        "billing_status": "unknown",
+        "billing_label": "n/a",
+        "billing_amount_usd": null,
+        "billing_notes": [],
+        "est_cost_usd_phase1_rate_input_only": 0.0
+      },
+      "per_turn": [
+        {
+          "turn": 1,
+          "prompt": "In the current repo, use read_file to read ONLY the first 30 lines of agent/project_brief.py and tell me the module docstring in one short sentence. Do not edit any files. Do not write memory.",
+          "latency_s": 1.518,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        }
+      ],
+      "governor_events": [
+        {
+          "tokens_before": 18575,
+          "tokens_after": 18575,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        }
+      ],
+      "governor_log_lines": [],
+      "governor_fired": false,
+      "governor_blocked": false,
+      "capability_ok": false,
+      "response_previews": [
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go"
+      ],
+      "errors": [],
+      "db_usage": null,
+      "request_dump_preflight": {
+        "dump_file": "request_dump_phase1-live-b501848bec31_20260717_164038_597411.json",
+        "model": "minimax-m3",
+        "msg_count": 2,
+        "tool_count": 30,
+        "system_chars": 29445,
+        "tools_json_bytes": 48027,
+        "est_request_tokens_rough": 18575,
+        "url": "https://opencode.ai/zen/go/v1/chat/completions"
+      },
+      "provider_error": "GoUsageLimitError monthly",
+      "provider_usage_available": false,
+      "governor_summary": {
+        "calls": 1,
+        "first_tokens_before": 18575,
+        "first_tokens_after": 18575,
+        "any_actions": false,
+        "any_blocked": false,
+        "all_actions": []
+      },
+      "offline_before": {
+        "name": "3. one coding task BEFORE",
+        "input_tokens_est": 37482,
+        "tokens_before_gov": 37482,
+        "tokens_after_gov": 37482,
+        "governor_actions": [],
+        "blocked": false,
+        "msg_count": 6,
+        "est_cost_usd": 0.014993,
+        "cache_read_tokens": "n/a (offline \u2014 no provider call)",
+        "output_tokens": "n/a (offline \u2014 no provider call)",
+        "latency_ms": "n/a (offline \u2014 no provider call)"
+      },
+      "offline_after_estimate": {
+        "name": "3. one coding task AFTER",
+        "input_tokens_est": 20076,
+        "tokens_before_gov": 20076,
+        "tokens_after_gov": 20076,
+        "governor_actions": [],
+        "blocked": false,
+        "msg_count": 6,
+        "est_cost_usd": 0.00803,
+        "cache_read_tokens": "n/a (offline \u2014 no provider call)",
+        "output_tokens": "n/a (offline \u2014 no provider call)",
+        "latency_ms": "n/a (offline \u2014 no provider call)"
+      },
+      "live_provider_usage": {
+        "input_tokens": null,
+        "cache_read_tokens": null,
+        "output_tokens": null,
+        "reason": "HTTP 429 GoUsageLimitError \u2014 no successful completion"
+      },
+      "live_latency_s": 1.936,
+      "live_governor_input_tokens_est": 18575,
+      "offline_before_input": 37482,
+      "offline_after_input": 20076,
+      "delta_vs_offline_before": -18907
+    },
+    {
+      "name": "4. tool-heavy research",
+      "session_id": "phase1-live-145fa03ee7d3",
+      "model": "minimax-m3",
+      "provider": "opencode-go",
+      "wall_latency_s": 1.355,
+      "turns": 1,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 0,
+        "api_call_count": 1,
+        "est_cost_usd_offline_rate": 0.0,
+        "billing_status": "unknown",
+        "billing_label": "n/a",
+        "billing_amount_usd": null,
+        "billing_notes": [],
+        "est_cost_usd_phase1_rate_input_only": 0.0
+      },
+      "per_turn": [
+        {
+          "turn": 1,
+          "prompt": "Do a tiny research pass with tools only (keep it small):\n1) web_search query: 'Hermes Agent Nous Research' (1 search)\n2) If available, web_extract ONE short page from results OR skip if no key\n3) read",
+          "latency_s": 1.296,
+          "delta_input": 0,
+          "delta_output": 0,
+          "delta_cache_read": 0,
+          "response_preview": "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go",
+          "failed": true
+        }
+      ],
+      "governor_events": [
+        {
+          "tokens_before": 18620,
+          "tokens_after": 18620,
+          "actions": [],
+          "blocked": false,
+          "block_reason": ""
+        }
+      ],
+      "governor_log_lines": [],
+      "governor_fired": false,
+      "governor_blocked": false,
+      "capability_ok": false,
+      "response_previews": [
+        "HTTP 429: Monthly usage limit reached. Resets in 17 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_01KWP89FWC7ASK6FK06W11GAJS/go"
+      ],
+      "errors": [],
+      "db_usage": null,
+      "request_dump_preflight": {
+        "dump_file": "request_dump_phase1-live-145fa03ee7d3_20260717_164039_947688.json",
+        "model": "minimax-m3",
+        "msg_count": 2,
+        "tool_count": 30,
+        "system_chars": 29445,
+        "tools_json_bytes": 48027,
+        "est_request_tokens_rough": 18620,
+        "url": "https://opencode.ai/zen/go/v1/chat/completions"
+      },
+      "provider_error": "GoUsageLimitError monthly",
+      "provider_usage_available": false,
+      "governor_summary": {
+        "calls": 1,
+        "first_tokens_before": 18620,
+        "first_tokens_after": 18620,
+        "any_actions": false,
+        "any_blocked": false,
+        "all_actions": []
+      },
+      "offline_before": {
+        "name": "4. tool-heavy research BEFORE",
+        "input_tokens_est": 81738,
+        "tokens_before_gov": 81738,
+        "tokens_after_gov": 81738,
+        "governor_actions": [],
+        "blocked": false,
+        "msg_count": 8,
+        "est_cost_usd": 0.032695,
+        "cache_read_tokens": "n/a (offline \u2014 no provider call)",
+        "output_tokens": "n/a (offline \u2014 no provider call)",
+        "latency_ms": "n/a (offline \u2014 no provider call)"
+      },
+      "offline_after_estimate": {
+        "name": "4. tool-heavy research AFTER",
+        "input_tokens_est": 22239,
+        "tokens_before_gov": 64332,
+        "tokens_after_gov": 22239,
+        "governor_actions": [
+          "tool_result summarized (web_extract)",
+          "tool_result summarized (session_search)",
+          "tool_result truncated newest (read_file)"
+        ],
+        "blocked": false,
+        "msg_count": 8,
+        "est_cost_usd": 0.008896,
+        "cache_read_tokens": "n/a (offline \u2014 no provider call)",
+        "output_tokens": "n/a (offline \u2014 no provider call)",
+        "latency_ms": "n/a (offline \u2014 no provider call)"
+      },
+      "live_provider_usage": {
+        "input_tokens": null,
+        "cache_read_tokens": null,
+        "output_tokens": null,
+        "reason": "HTTP 429 GoUsageLimitError \u2014 no successful completion"
+      },
+      "live_latency_s": 1.355,
+      "live_governor_input_tokens_est": 18620,
+      "offline_before_input": 81738,
+      "offline_after_input": 22239,
+      "delta_vs_offline_before": -63118
+    }
+  ],
+  "prompt_size_baseline_before": {
+    "platform": "cli",
+    "model": "minimax-m3",
+    "system_chars": 102604,
+    "system_tokens_est": 25651,
+    "skills_index_chars": 13209,
+    "skills_index_tokens_est": 3302,
+    "memory_chars": 2207,
+    "user_profile_chars": 1264,
+    "tools_count": 28,
+    "tools_json_bytes": 47005,
+    "tools_tokens_est": 11751,
+    "fixed_floor_tokens_est": 37402,
+    "sections": [
+      {
+        "label": "stable (identity/guidance/skills)",
+        "chars": 25701,
+        "bytes": 25811
+      },
+      {
+        "label": "context (AGENTS.md/cwd files)",
+        "chars": 73363,
+        "bytes": 73993
+      },
+      {
+        "label": "volatile (memory/profile/timestamp)",
+        "chars": 3536,
+        "bytes": 3931
+      }
+    ]
+  },
+  "prompt_size_baseline_after": {
+    "platform": "cli",
+    "model": "minimax-m3",
+    "system_chars": 32898,
+    "system_tokens_est": 8224,
+    "skills_index_chars": 13209,
+    "skills_index_tokens_est": 3302,
+    "memory_chars": 2207,
+    "user_profile_chars": 1264,
+    "tools_count": 30,
+    "tools_json_bytes": 47826,
+    "tools_tokens_est": 11956,
+    "fixed_floor_tokens_est": 20181,
+    "sections": [
+      {
+        "label": "stable (identity/guidance/skills)",
+        "chars": 25701,
+        "bytes": 25811
+      },
+      {
+        "label": "context (AGENTS.md/cwd files)",
+        "chars": 3657,
+        "bytes": 3671
+      },
+      {
+        "label": "volatile (memory/profile/timestamp)",
+        "chars": 3536,
+        "bytes": 3931
+      }
+    ]
+  },
+  "blocker": {
+    "type": "GoUsageLimitError",
+    "http": 429,
+    "message": "Monthly usage limit reached. Resets in 17 days.",
+    "workspace": "wrk_01KWP89FWC7ASK6FK06W11GAJS",
+    "probed_models_all_429": [
+      "minimax-m3",
+      "glm-5.2",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "kimi-k2.7-code",
+      "qwen3.7-max",
+      "glm-5",
+      "minimax-m2.5"
+    ],
+    "api_key_redacted": "***v1Xs",
+    "note": "Provider accepted auth and built full requests; quota exhausted before completions. Governor preflight + request dumps still measured."
+  },
+  "status": "blocked_provider_quota",
+  "measurement_mode": "live_attempt_partial_preflight_only"
+}

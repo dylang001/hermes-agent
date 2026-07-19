@@ -139,6 +139,12 @@ class InsightsEngine:
                 },
                 "activity": {},
                 "top_sessions": [],
+                "prompt_cache": {
+                    "resolved_sessions": 0,
+                    "markers_emitted_sessions": 0,
+                    "modes": [],
+                    "providers": [],
+                },
             }
 
         # Compute insights
@@ -149,6 +155,7 @@ class InsightsEngine:
         skills = self._compute_skill_breakdown(skill_usage)
         activity = self._compute_activity_patterns(sessions)
         top_sessions = self._compute_top_sessions(sessions)
+        prompt_cache = self._compute_prompt_cache_breakdown(sessions)
 
         return {
             "days": days,
@@ -162,18 +169,21 @@ class InsightsEngine:
             "skills": skills,
             "activity": activity,
             "top_sessions": top_sessions,
+            "prompt_cache": prompt_cache,
         }
 
     # =========================================================================
     # Data gathering (SQL queries)
     # =========================================================================
 
-    # Columns we actually need (skip system_prompt, model_config blobs)
+    # Columns we actually need (skip system_prompt; model_config is kept for
+    # prompt_cache telemetry — JSON, parsed lazily in cache-mode breakdown).
     _SESSION_COLS = ("id, source, model, started_at, ended_at, "
                      "message_count, tool_call_count, input_tokens, output_tokens, "
                      "cache_read_tokens, cache_write_tokens, billing_provider, "
                      "billing_base_url, billing_mode, estimated_cost_usd, "
-                     "actual_cost_usd, cost_status, cost_source, api_call_count")
+                     "actual_cost_usd, cost_status, cost_source, api_call_count, "
+                     "model_config")
 
     # Pre-computed query strings — f-string evaluated once at class definition,
     # not at runtime, so no user-controlled value can alter the query structure.
@@ -412,6 +422,11 @@ class InsightsEngine:
         total_cache_read = sum(s.get("cache_read_tokens") or 0 for s in sessions)
         total_cache_write = sum(s.get("cache_write_tokens") or 0 for s in sessions)
         total_tokens = total_input + total_output + total_cache_read + total_cache_write
+        # Cache-read share of billed input-side tokens (input + cache read).
+        _input_side = total_input + total_cache_read
+        cache_read_pct = (
+            (100.0 * total_cache_read / _input_side) if _input_side > 0 else 0.0
+        )
         total_tool_calls = sum(s.get("tool_call_count") or 0 for s in sessions)
         total_messages = sum(s.get("message_count") or 0 for s in sessions)
 
@@ -464,6 +479,7 @@ class InsightsEngine:
             "total_output_tokens": total_output,
             "total_cache_read_tokens": total_cache_read,
             "total_cache_write_tokens": total_cache_write,
+            "cache_read_pct": cache_read_pct,
             "total_tokens": total_tokens,
             "estimated_cost": total_cost,
             "actual_cost": actual_cost,
@@ -869,6 +885,158 @@ class InsightsEngine:
 
         return top
 
+    def _compute_prompt_cache_breakdown(self, sessions: List[Dict]) -> Dict[str, Any]:
+        """Aggregate prompt-cache capability modes across sessions.
+
+        Prefers persisted ``model_config.prompt_cache`` telemetry; falls back
+        to resolving the capability from billing provider / base URL / model
+        for older sessions that predate the capability layer.
+        """
+        from agent.prompt_cache_capabilities import (
+            capability_from_telemetry,
+            resolve_prompt_cache_capability,
+        )
+
+        by_mode: Dict[str, Dict[str, Any]] = {}
+        by_provider: Dict[str, Dict[str, Any]] = {}
+        markers_sessions = 0
+        resolved_sessions = 0
+
+        for s in sessions:
+            cap = None
+            raw_cfg = s.get("model_config")
+            cfg: Dict[str, Any] = {}
+            if isinstance(raw_cfg, str) and raw_cfg.strip():
+                try:
+                    parsed = json.loads(raw_cfg)
+                    if isinstance(parsed, dict):
+                        cfg = parsed
+                except (json.JSONDecodeError, TypeError):
+                    cfg = {}
+            elif isinstance(raw_cfg, dict):
+                cfg = raw_cfg
+
+            if isinstance(cfg.get("prompt_cache"), dict):
+                cap = capability_from_telemetry(cfg["prompt_cache"])
+                if cap and cfg["prompt_cache"].get("markers_emitted"):
+                    markers_sessions += 1
+
+            if cap is None:
+                provider = (
+                    cfg.get("provider")
+                    or s.get("billing_provider")
+                    or ""
+                )
+                base_url = (
+                    cfg.get("base_url")
+                    or s.get("billing_base_url")
+                    or ""
+                )
+                api_mode = cfg.get("api_mode") or ""
+                model = cfg.get("model") or s.get("model") or ""
+                try:
+                    cap = resolve_prompt_cache_capability(
+                        provider=str(provider),
+                        base_url=str(base_url) if base_url else None,
+                        api_mode=str(api_mode) if api_mode else None,
+                        model=str(model) if model else None,
+                    )
+                except Exception:
+                    continue
+
+            if cap is None:
+                continue
+            resolved_sessions += 1
+            mode = cap.mode.value
+            layout = cap.layout.value
+            bucket = by_mode.setdefault(
+                mode,
+                {
+                    "mode": mode,
+                    "sessions": 0,
+                    "layouts": Counter(),
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                    "input_tokens": 0,
+                },
+            )
+            bucket["sessions"] += 1
+            bucket["layouts"][layout] += 1
+            bucket["cache_read_tokens"] += s.get("cache_read_tokens") or 0
+            bucket["cache_write_tokens"] += s.get("cache_write_tokens") or 0
+            bucket["input_tokens"] += s.get("input_tokens") or 0
+
+            provider_key = (
+                str(cfg.get("provider") or s.get("billing_provider") or "unknown")
+                .strip()
+                .lower()
+                or "unknown"
+            )
+            p_bucket = by_provider.setdefault(
+                provider_key,
+                {
+                    "provider": provider_key,
+                    "mode": mode,
+                    "layout": layout,
+                    "sessions": 0,
+                    "markers_emitted_sessions": 0,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                    "input_tokens": 0,
+                },
+            )
+            p_bucket["sessions"] += 1
+            p_bucket["cache_read_tokens"] += s.get("cache_read_tokens") or 0
+            p_bucket["cache_write_tokens"] += s.get("cache_write_tokens") or 0
+            p_bucket["input_tokens"] += s.get("input_tokens") or 0
+            if isinstance(cfg.get("prompt_cache"), dict) and cfg["prompt_cache"].get(
+                "markers_emitted"
+            ):
+                p_bucket["markers_emitted_sessions"] += 1
+            # Keep first-seen mode/layout as primary label (sessions may mix).
+            if p_bucket["sessions"] == 1:
+                p_bucket["mode"] = mode
+                p_bucket["layout"] = layout
+
+        modes = []
+        for mode, bucket in sorted(
+            by_mode.items(), key=lambda kv: -kv[1]["sessions"]
+        ):
+            layouts = dict(bucket["layouts"])
+            input_side = bucket["input_tokens"] + bucket["cache_read_tokens"]
+            modes.append(
+                {
+                    "mode": mode,
+                    "sessions": bucket["sessions"],
+                    "layouts": layouts,
+                    "cache_read_tokens": bucket["cache_read_tokens"],
+                    "cache_write_tokens": bucket["cache_write_tokens"],
+                    "cache_read_pct": (
+                        (100.0 * bucket["cache_read_tokens"] / input_side)
+                        if input_side > 0
+                        else 0.0
+                    ),
+                }
+            )
+
+        providers = sorted(
+            by_provider.values(), key=lambda r: -r["sessions"]
+        )
+        for p in providers:
+            input_side = p["input_tokens"] + p["cache_read_tokens"]
+            p["cache_read_pct"] = (
+                (100.0 * p["cache_read_tokens"] / input_side)
+                if input_side > 0
+                else 0.0
+            )
+
+        return {
+            "resolved_sessions": resolved_sessions,
+            "markers_emitted_sessions": markers_sessions,
+            "modes": modes,
+            "providers": providers,
+        }
+
     # =========================================================================
     # Formatting
     # =========================================================================
@@ -912,11 +1080,30 @@ class InsightsEngine:
         lines.append(f"  Sessions:          {o['total_sessions']:<12}  Messages:        {o['total_messages']:,}")
         lines.append(f"  Tool calls:        {o['total_tool_calls']:<12,}  User messages:   {o['user_messages']:,}")
         lines.append(f"  Input tokens:      {o['total_input_tokens']:<12,}  Output tokens:   {o['total_output_tokens']:,}")
+        lines.append(f"  Cache reads:       {o.get('total_cache_read_tokens', 0):<12,}  Cache writes:    {o.get('total_cache_write_tokens', 0):,}")
+        if o.get("cache_read_pct") is not None:
+            lines.append(f"  Cache read %:      {o['cache_read_pct']:.1f}%")
         lines.append(f"  Total tokens:      {o['total_tokens']:,}")
         if o["total_hours"] > 0:
             lines.append(f"  Active time:       ~{format_duration_compact(o['total_hours'] * 3600):<11}  Avg session:     ~{format_duration_compact(o['avg_session_duration'])}")
         lines.append(f"  Avg msgs/session:  {o['avg_messages_per_session']:.1f}")
         lines.append("")
+
+        # Prompt-cache capability modes
+        pc = report.get("prompt_cache") or {}
+        if pc.get("modes") or pc.get("providers"):
+            lines.append("  💾 Prompt Cache")
+            lines.append("  " + "─" * 56)
+            lines.append(f"  {'Provider':<22} {'Mode':<10} {'Layout':<10} {'Sess':>6}")
+            for p in (pc.get("providers") or [])[:12]:
+                lines.append(
+                    f"  {p['provider'][:22]:<22} {p['mode']:<10} {p['layout']:<10} {p['sessions']:>6}"
+                )
+            if pc.get("markers_emitted_sessions"):
+                lines.append(
+                    f"  Explicit markers emitted: {pc['markers_emitted_sessions']} sessions"
+                )
+            lines.append("")
 
         # Model breakdown
         if report["models"]:
@@ -1028,9 +1215,24 @@ class InsightsEngine:
         # Overview
         lines.append(f"**Sessions:** {o['total_sessions']} | **Messages:** {o['total_messages']:,} | **Tool calls:** {o['total_tool_calls']:,}")
         lines.append(f"**Tokens:** {o['total_tokens']:,} (in: {o['total_input_tokens']:,} / out: {o['total_output_tokens']:,})")
+        if o.get("total_cache_read_tokens"):
+            lines.append(
+                f"**Cache:** reads {o['total_cache_read_tokens']:,} "
+                f"({o.get('cache_read_pct', 0):.1f}%) / writes {o.get('total_cache_write_tokens', 0):,}"
+            )
         if o["total_hours"] > 0:
             lines.append(f"**Active time:** ~{format_duration_compact(o['total_hours'] * 3600)} | **Avg session:** ~{format_duration_compact(o['avg_session_duration'])}")
         lines.append("")
+
+        pc = report.get("prompt_cache") or {}
+        if pc.get("providers"):
+            lines.append("**💾 Prompt cache:**")
+            for p in pc["providers"][:5]:
+                lines.append(
+                    f"  {p['provider']} — {p['mode']}/{p['layout']} "
+                    f"({p['sessions']} sess, {p.get('cache_read_pct', 0):.0f}% read)"
+                )
+            lines.append("")
 
         # Models (top 5)
         if report["models"]:

@@ -172,6 +172,25 @@ class ProviderProfile:
         """
         return self.default_max_tokens
 
+    def prompt_cache_capability(
+        self,
+        *,
+        api_mode: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ):
+        """Declare prompt-cache behaviour for this provider + transport.
+
+        Return a ``PromptCacheCapability`` (``NONE`` / ``AUTO`` / ``EXPLICIT``)
+        or ``None`` to defer to the transport/host registry in
+        ``agent.prompt_cache_capabilities``.
+
+        Override on adapters that know their wire contract. Core must never
+        emit Anthropic ``cache_control`` unless the selected transport
+        advertises ``EXPLICIT``.
+        """
+        return None
+
     def fetch_models(
         self,
         *,

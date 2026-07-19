@@ -365,6 +365,25 @@ TOOLSETS = {
         # non-configurable-toolset recovery loop in hermes_cli/tools_config.py).
         "posture": True,
     },
+
+    # Conversational posture (Phase 1 context-cost remediation). Lean schema
+    # for chat / Q&A / light research — no terminal, browser, computer-use,
+    # media generation, or kanban. Opt in via platform_toolsets.<platform>
+    # including "conversational", or replace the platform list with it.
+    "conversational": {
+        "description": "Minimal chat toolset: clarify, memory, session_search, skills, todo, file read/search, web",
+        "tools": [
+            "clarify",
+            "memory",
+            "todo",
+            "session_search",
+            "skills_list", "skill_view",
+            "read_file", "search_files",
+            "web_search", "web_extract",
+        ],
+        "includes": [],
+        "posture": True,
+    },
     
     # ==========================================================================
     # Full Hermes toolsets (CLI + messaging platforms)

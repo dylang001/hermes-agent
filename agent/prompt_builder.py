@@ -1823,6 +1823,45 @@ def build_nous_subscription_prompt(valid_tool_names: "set[str] | None" = None) -
 # Context files (SOUL.md, AGENTS.md, .cursorrules)
 # =========================================================================
 
+def _project_context_brief_enabled() -> bool:
+    """Whether project docs are injected as brief+index (Phase 1 default: on)."""
+    try:
+        from hermes_cli.config import load_config
+
+        cfg = load_config() or {}
+        # Default True — Phase 1 remediation. Explicit False restores full dump
+        # (still subject to context_file_max_chars truncation).
+        return bool(cfg.get("context_project_brief", True))
+    except Exception:
+        return True
+
+
+def _format_loaded_project_doc(
+    content: str,
+    *,
+    label: str,
+    read_path: str,
+    context_length: Optional[int] = None,
+) -> str:
+    """Apply brief+index (preferred) or legacy head/tail truncation."""
+    if _project_context_brief_enabled():
+        from agent.project_brief import build_project_brief_and_index
+
+        max_chars = _get_context_file_max_chars(context_length)
+        # Brief targets a leaner budget than the hard cap when the cap is large.
+        brief_cap = min(max_chars, 4_000) if max_chars > 4_000 else max_chars
+        return build_project_brief_and_index(
+            content,
+            source_path=read_path,
+            source_label=label,
+            max_chars=max(800, brief_cap),
+        )
+    wrapped = f"## {label}\n\n{content}"
+    return _truncate_content(
+        wrapped, label, context_length=context_length, read_path=read_path
+    )
+
+
 def _truncate_content(
     content: str,
     filename: str,
@@ -1910,10 +1949,11 @@ def _load_hermes_md(cwd_path: Path, context_length: Optional[int] = None) -> str
         except ValueError:
             pass
         content = _scan_context_content(content, rel)
-        result = f"## {rel}\n\n{content}"
-        return _truncate_content(
-            result, ".hermes.md", context_length=context_length,
+        return _format_loaded_project_doc(
+            content,
+            label=rel,
             read_path=str(hermes_md_path),
+            context_length=context_length,
         )
     except Exception as e:
         logger.debug("Could not read %s: %s", hermes_md_path, e)
@@ -1929,10 +1969,11 @@ def _load_agents_md(cwd_path: Path, context_length: Optional[int] = None) -> str
                 content = candidate.read_text(encoding="utf-8").strip()
                 if content:
                     content = _scan_context_content(content, name)
-                    result = f"## {name}\n\n{content}"
-                    return _truncate_content(
-                        result, "AGENTS.md", context_length=context_length,
+                    return _format_loaded_project_doc(
+                        content,
+                        label=name,
                         read_path=str(candidate),
+                        context_length=context_length,
                     )
             except Exception as e:
                 logger.debug("Could not read %s: %s", candidate, e)
@@ -1948,10 +1989,11 @@ def _load_claude_md(cwd_path: Path, context_length: Optional[int] = None) -> str
                 content = candidate.read_text(encoding="utf-8").strip()
                 if content:
                     content = _scan_context_content(content, name)
-                    result = f"## {name}\n\n{content}"
-                    return _truncate_content(
-                        result, "CLAUDE.md", context_length=context_length,
+                    return _format_loaded_project_doc(
+                        content,
+                        label=name,
                         read_path=str(candidate),
+                        context_length=context_length,
                     )
             except Exception as e:
                 logger.debug("Could not read %s: %s", candidate, e)
@@ -1960,14 +2002,14 @@ def _load_claude_md(cwd_path: Path, context_length: Optional[int] = None) -> str
 
 def _load_cursorrules(cwd_path: Path, context_length: Optional[int] = None) -> str:
     """.cursorrules + .cursor/rules/*.mdc — cwd only."""
-    cursorrules_content = ""
+    parts: list[str] = []
     cursorrules_file = cwd_path / ".cursorrules"
     if cursorrules_file.exists():
         try:
             content = cursorrules_file.read_text(encoding="utf-8").strip()
             if content:
                 content = _scan_context_content(content, ".cursorrules")
-                cursorrules_content += f"## .cursorrules\n\n{content}\n\n"
+                parts.append(f"# .cursorrules\n\n{content}")
         except Exception as e:
             logger.debug("Could not read .cursorrules: %s", e)
 
@@ -1978,16 +2020,21 @@ def _load_cursorrules(cwd_path: Path, context_length: Optional[int] = None) -> s
             try:
                 content = mdc_file.read_text(encoding="utf-8").strip()
                 if content:
-                    content = _scan_context_content(content, f".cursor/rules/{mdc_file.name}")
-                    cursorrules_content += f"## .cursor/rules/{mdc_file.name}\n\n{content}\n\n"
+                    content = _scan_context_content(
+                        content, f".cursor/rules/{mdc_file.name}"
+                    )
+                    parts.append(f"# .cursor/rules/{mdc_file.name}\n\n{content}")
             except Exception as e:
                 logger.debug("Could not read %s: %s", mdc_file, e)
 
-    if not cursorrules_content:
+    if not parts:
         return ""
-    return _truncate_content(
-        cursorrules_content, ".cursorrules", context_length=context_length,
+    combined = "\n\n".join(parts)
+    return _format_loaded_project_doc(
+        combined,
+        label=".cursorrules",
         read_path=str(cwd_path / ".cursorrules"),
+        context_length=context_length,
     )
 
 

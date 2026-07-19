@@ -9,7 +9,7 @@
 
 | Field | Value |
 |-------|--------|
-| Git SHA (full) | `4fa449a53f3ed01536cfc325c04076fcf38de835` (tag tip; confirm `.deployed-sha`) |
+| Git SHA (full) | `e409a5047cbbf18b0c2eca5ec8299a7a7069b98f` (tag `production-2026-07-16-upstream`; confirm `.deployed-sha`) |
 | Canonical tag | `production-2026-07-16-upstream` |
 | Historical tag | `production-2026-07-16b` → `64d9a6982aa8e3f63f49274176b69eda64745a7b` |
 | Preservation tip | `preserve/hermes-pre-upstream-20260716T0958Z` @ `18b78dd1f` |

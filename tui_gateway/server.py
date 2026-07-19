@@ -2414,6 +2414,17 @@ def _runtime_model_config(agent, existing: dict | None = None) -> dict:
     else:
         config.pop("service_tier", None)
 
+    # Prompt-cache capability (transport-declared NONE / AUTO / EXPLICIT).
+    pc = getattr(agent, "_prompt_cache_capability", None)
+    if pc is not None:
+        try:
+            tel = pc.to_telemetry()
+            tel["enabled"] = bool(getattr(agent, "_use_prompt_caching", False))
+            tel["markers_emitted"] = bool(getattr(agent, "_use_prompt_caching", False))
+            config["prompt_cache"] = tel
+        except Exception:
+            logger.debug("prompt_cache telemetry attach failed", exc_info=True)
+
     return config
 
 

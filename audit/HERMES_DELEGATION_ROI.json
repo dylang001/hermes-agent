@@ -1,0 +1,234 @@
+{
+  "parents": [
+    {
+      "session_id": "20260619_092959_3be2c9",
+      "model": "minimax-m3",
+      "parent_api_calls": 261,
+      "parent_cache_read": 55783831,
+      "parent_tool_calls": 343,
+      "children": [
+        {
+          "session_id": "20260619_095920_196c47",
+          "api_call_count": 40,
+          "tool_call_count": 75,
+          "cache_read_tokens": 2342238,
+          "cache_write_tokens": 0,
+          "input_tokens": 118600,
+          "output_tokens": 25991,
+          "mutations": {
+            "write_file": 5,
+            "patch": 13,
+            "terminal_mutate": 5,
+            "total_mutations": 23
+          }
+        },
+        {
+          "session_id": "20260619_095922_535c41",
+          "api_call_count": 50,
+          "tool_call_count": 65,
+          "cache_read_tokens": 2439662,
+          "cache_write_tokens": 0,
+          "input_tokens": 82672,
+          "output_tokens": 25238,
+          "mutations": {
+            "write_file": 8,
+            "patch": 2,
+            "terminal_mutate": 3,
+            "total_mutations": 13
+          }
+        },
+        {
+          "session_id": "20260619_100039_607cd4",
+          "api_call_count": 33,
+          "tool_call_count": 61,
+          "cache_read_tokens": 1668402,
+          "cache_write_tokens": 0,
+          "input_tokens": 92733,
+          "output_tokens": 30448,
+          "mutations": {
+            "write_file": 9,
+            "patch": 9,
+            "terminal_mutate": 3,
+            "total_mutations": 21
+          }
+        },
+        {
+          "session_id": "20260619_100133_aa2a31",
+          "api_call_count": 34,
+          "tool_call_count": 33,
+          "cache_read_tokens": 707322,
+          "cache_write_tokens": 0,
+          "input_tokens": 17244,
+          "output_tokens": 18592,
+          "mutations": {
+            "write_file": 19,
+            "patch": 1,
+            "terminal_mutate": 1,
+            "total_mutations": 21
+          }
+        },
+        {
+          "session_id": "20260619_100957_dd2e69",
+          "api_call_count": 36,
+          "tool_call_count": 36,
+          "cache_read_tokens": 1374959,
+          "cache_write_tokens": 0,
+          "input_tokens": 82175,
+          "output_tokens": 25244,
+          "mutations": {
+            "write_file": 9,
+            "patch": 9,
+            "terminal_mutate": 1,
+            "total_mutations": 19
+          }
+        },
+        {
+          "session_id": "20260619_101202_4d8992",
+          "api_call_count": 21,
+          "tool_call_count": 46,
+          "cache_read_tokens": 813256,
+          "cache_write_tokens": 0,
+          "input_tokens": 64251,
+          "output_tokens": 19213,
+          "mutations": {
+            "write_file": 6,
+            "patch": 0,
+            "terminal_mutate": 2,
+            "total_mutations": 8
+          }
+        },
+        {
+          "session_id": "20260619_123925_17a2d7",
+          "api_call_count": 42,
+          "tool_call_count": 60,
+          "cache_read_tokens": 1678439,
+          "cache_write_tokens": 0,
+          "input_tokens": 73748,
+          "output_tokens": 16862,
+          "mutations": {
+            "write_file": 0,
+            "patch": 7,
+            "terminal_mutate": 1,
+            "total_mutations": 8
+          }
+        }
+      ],
+      "child_api_calls": 256,
+      "child_cache_read": 11024278,
+      "child_tool_calls": 376,
+      "child_mutations": 113,
+      "parent_mutations": 34,
+      "outcomes": {
+        "spawn_calls": 9,
+        "dispatched": 5,
+        "capacity_error": 2,
+        "completed": 2
+      },
+      "child_share_of_family_cache": 16.5,
+      "child_share_of_family_api": 49.5,
+      "mutations_per_child_api": 0.441
+    },
+    {
+      "session_id": "20260617_210709_7ea056",
+      "model": "nvidia/nemotron-3-super-120b-a12b",
+      "parent_api_calls": 9,
+      "parent_cache_read": 0,
+      "parent_tool_calls": 8,
+      "children": [
+        {
+          "session_id": "20260617_211332_4efa4f",
+          "api_call_count": 32,
+          "tool_call_count": 31,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 1445536,
+          "output_tokens": 4385,
+          "mutations": {
+            "write_file": 0,
+            "patch": 0,
+            "terminal_mutate": 0,
+            "total_mutations": 0
+          }
+        },
+        {
+          "session_id": "20260617_211333_75af06",
+          "api_call_count": 20,
+          "tool_call_count": 19,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 783639,
+          "output_tokens": 4379,
+          "mutations": {
+            "write_file": 0,
+            "patch": 0,
+            "terminal_mutate": 8,
+            "total_mutations": 8
+          }
+        },
+        {
+          "session_id": "20260617_211332_daf27a",
+          "api_call_count": 32,
+          "tool_call_count": 31,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 305253,
+          "output_tokens": 7163,
+          "mutations": {
+            "write_file": 0,
+            "patch": 0,
+            "terminal_mutate": 2,
+            "total_mutations": 2
+          }
+        },
+        {
+          "session_id": "20260617_212148_8921c3",
+          "api_call_count": 15,
+          "tool_call_count": 14,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 447764,
+          "output_tokens": 2758,
+          "mutations": {
+            "write_file": 0,
+            "patch": 0,
+            "terminal_mutate": 2,
+            "total_mutations": 2
+          }
+        }
+      ],
+      "child_api_calls": 99,
+      "child_cache_read": 0,
+      "child_tool_calls": 95,
+      "child_mutations": 12,
+      "parent_mutations": 0,
+      "outcomes": {
+        "spawn_calls": 2,
+        "completed": 4
+      },
+      "child_share_of_family_cache": 0.0,
+      "child_share_of_family_api": 91.7,
+      "mutations_per_child_api": 0.121
+    }
+  ],
+  "aggregate": {
+    "parents": 2,
+    "children": 11,
+    "parent_api_calls": 270,
+    "child_api_calls": 355,
+    "parent_cache_read": 55783831,
+    "child_cache_read": 11024278,
+    "child_share_of_family_api": 56.8,
+    "child_share_of_family_cache": 16.5,
+    "child_mutations": 125,
+    "parent_mutations": 34,
+    "mutations_per_child_api_call": 0.352,
+    "outcomes": {
+      "spawn_calls": 11,
+      "dispatched": 5,
+      "capacity_error": 2,
+      "completed": 6
+    },
+    "verdict": "PRODUCTIVE_WORKERS \u2014 children mutate at a healthy rate; delegation may be earning its keep",
+    "note": "Parent turns avoided is not observable from the DB (counterfactual). ROI uses child cost share + mutation productivity as proxies."
+  }
+}

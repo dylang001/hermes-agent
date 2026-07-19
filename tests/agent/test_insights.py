@@ -271,6 +271,8 @@ class TestInsightsPopulated:
         assert "tools" in report
         assert "activity" in report
         assert "top_sessions" in report
+        assert "prompt_cache" in report
+        assert "modes" in report["prompt_cache"]
 
     def test_overview_session_count(self, populated_db):
         engine = InsightsEngine(populated_db)
@@ -532,10 +534,11 @@ class TestTerminalFormatting:
 
         assert "Input tokens" in text
         assert "Output tokens" in text
-        # Cost and cache metrics are intentionally hidden (pricing was unreliable).
+        # Cost is intentionally hidden (pricing was unreliable); cache
+        # read/write counts and capability modes are first-class now.
         assert "Est. cost" not in text
-        assert "Cache read" not in text
-        assert "Cache write" not in text
+        assert "Cache reads" in text
+        assert "Prompt Cache" in text
 
     def test_terminal_format_shows_platforms(self, populated_db):
         engine = InsightsEngine(populated_db)
@@ -586,13 +589,13 @@ class TestGatewayFormatting:
         assert "**" in text  # Markdown bold
 
     def test_gateway_format_hides_cost(self, populated_db):
-        """Gateway format omits dollar figures and internal cache details."""
+        """Gateway format omits dollar figures; prompt-cache modes are shown."""
         engine = InsightsEngine(populated_db)
         report = engine.generate(days=30)
         text = engine.format_gateway(report)
 
         assert "$" not in text
-        assert "cache" not in text.lower()
+        assert "Prompt cache" in text
 
     def test_gateway_format_shows_models(self, populated_db):
         engine = InsightsEngine(populated_db)

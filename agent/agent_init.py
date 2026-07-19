@@ -577,6 +577,9 @@ def init_agent(
     # Tool execution state — allows _vprint during tool execution
     # even when stream consumers are registered (no tokens streaming then)
     agent._executing_tools = False
+    # Track B: runtime waist between planner turns and tool execution.
+    # Lazy-created on first use if unset; init here for a stable attribute.
+    agent._execution_coordinator = None
     agent._tool_guardrails = ToolCallGuardrailController()
     agent._tool_guardrail_halt_decision: ToolGuardrailDecision | None = None
 
@@ -641,6 +644,11 @@ def init_agent(
     # for the layout-vs-transport decision.
     agent._use_prompt_caching, agent._use_native_cache_layout = (
         agent._anthropic_prompt_cache_policy()
+    )
+    # Transport-declared capability (NONE / AUTO / EXPLICIT). Stashed by the
+    # policy helper; used for session telemetry and hermes insights.
+    agent._prompt_cache_capability = getattr(
+        agent, "_prompt_cache_capability", None
     )
     # Anthropic supports "5m" (default) and "1h" cache TTL tiers. Read from
     # config.yaml under prompt_caching.cache_ttl; unknown values keep "5m".
@@ -1050,7 +1058,14 @@ def init_agent(
                         if not _fb_explicit_key:
                             _fb_key_env = (_fb.get("key_env") or _fb.get("api_key_env") or "").strip()
                             if _fb_key_env:
-                                _fb_explicit_key = os.getenv(_fb_key_env, "").strip() or None
+                                try:
+                                    from hermes_cli.config import get_env_value_prefer_dotenv
+
+                                    _fb_explicit_key = (
+                                        get_env_value_prefer_dotenv(_fb_key_env) or ""
+                                    ).strip() or None
+                                except Exception:
+                                    _fb_explicit_key = os.getenv(_fb_key_env, "").strip() or None
                         _fb_client, _fb_model = resolve_provider_client(
                             _fb["provider"], model=_fb["model"], raw_codex=True,
                             explicit_base_url=_fb.get("base_url"),
@@ -1356,6 +1371,19 @@ def init_agent(
         "reasoning_config": reasoning_config,
         "max_tokens": max_tokens,
     }
+    # Persist declared prompt-cache capability for insights / debugging.
+    _pc_cap = getattr(agent, "_prompt_cache_capability", None)
+    if _pc_cap is not None:
+        try:
+            agent._session_init_model_config["prompt_cache"] = _pc_cap.to_telemetry()
+            agent._session_init_model_config["prompt_cache"]["enabled"] = bool(
+                agent._use_prompt_caching
+            )
+            agent._session_init_model_config["prompt_cache"]["markers_emitted"] = bool(
+                agent._use_prompt_caching
+            )
+        except Exception:
+            pass
     
     # In-memory todo list for task planning (one per agent/session)
     from tools.todo_tool import TodoStore
