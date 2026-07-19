@@ -604,6 +604,11 @@ def run_conversation(
         set_current_write_origin=set_current_write_origin,
         ra=_ra,
     )
+    # Observatory: wall-clock for engineering-task duration (fail-open).
+    try:
+        agent._observatory_turn_started_at = time.time()
+    except Exception:
+        pass
     user_message = _ctx.user_message
     original_user_message = _ctx.original_user_message
     messages = _ctx.messages

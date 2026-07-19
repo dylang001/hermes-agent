@@ -556,4 +556,32 @@ def finalize_turn(
     except Exception as exc:
         logger.warning("on_session_end hook failed: %s", exc)
 
+    # Observatory KPI: cost per successful engineering task (aggregate only).
+    try:
+        from agent.hermes_metrics import record_engineering_task
+        import time as _time
+
+        if interrupted:
+            _eng_outcome = "aborted"
+        elif getattr(agent, "_tool_guardrail_halt_decision", None) is not None:
+            _eng_outcome = "intervention"
+        elif failed or not completed:
+            _eng_outcome = "failure"
+        else:
+            _eng_outcome = "success"
+        _started = getattr(agent, "_observatory_turn_started_at", None)
+        _duration = (
+            max(0.0, _time.time() - float(_started)) if _started else 0.0
+        )
+        record_engineering_task(
+            outcome=_eng_outcome,
+            duration_seconds=_duration,
+            estimated_cost_usd=float(
+                getattr(agent, "session_estimated_cost_usd", 0.0) or 0.0
+            ),
+            source="agent_turn",
+        )
+    except Exception:
+        pass
+
     return result

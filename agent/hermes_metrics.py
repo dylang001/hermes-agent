@@ -8,14 +8,20 @@ disabled or on any internal error so normal agent execution is unaffected.
 from __future__ import annotations
 
 import logging
+import os
+import re
 import socket
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+_LABEL_SAFE = re.compile(r"[^A-Za-z0-9._+:-]+")
 
 # Fixed latency buckets (seconds) — low cardinality, enough for p95 via PromQL.
 _LATENCY_BUCKETS: Tuple[float, ...] = (0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float("inf"))
@@ -109,7 +115,12 @@ class _Registry:
 
         for (name, label_items), value in sorted(counters, key=lambda x: (x[0][0], x[0][1])):
             _ensure_meta(name, "counter", "Hermes counter")
-            lines.append(f"{name}{_fmt_labels(label_items)} {value:.0f}")
+            # Keep integer counters compact; preserve fractional USD aggregates.
+            if float(value).is_integer():
+                rendered = f"{int(value)}"
+            else:
+                rendered = f"{value:.6f}".rstrip("0").rstrip(".")
+            lines.append(f"{name}{_fmt_labels(label_items)} {rendered}")
 
         for (name, label_items), value in sorted(gauges, key=lambda x: (x[0][0], x[0][1])):
             _ensure_meta(name, "gauge", "Hermes gauge")
@@ -269,6 +280,128 @@ def record_error(*, kind: str) -> None:
     _safe(_do)
 
 
+def _sanitize_label(value: str, *, max_len: int = 64) -> str:
+    cleaned = _LABEL_SAFE.sub("_", (value or "").strip())
+    return (cleaned or "unknown")[:max_len]
+
+
+def resolve_runtime_metadata() -> Dict[str, str]:
+    """Collect low-cardinality runtime identity for info metrics."""
+    git_sha = (os.environ.get("HERMES_GIT_SHA") or "").strip()
+    build_time = (os.environ.get("HERMES_BUILD_TIME") or "").strip()
+    app_root = Path(__file__).resolve().parent.parent
+    deployed = app_root / ".deployed-sha"
+    if not git_sha and deployed.is_file():
+        try:
+            git_sha = deployed.read_text(encoding="utf-8").strip().split()[0]
+        except Exception:
+            pass
+    if not git_sha:
+        try:
+            git_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(app_root),
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            ).decode("utf-8", errors="replace").strip()
+        except Exception:
+            git_sha = "unknown"
+    if not build_time:
+        try:
+            build_time = subprocess.check_output(
+                ["git", "show", "-s", "--format=%cI", "HEAD"],
+                cwd=str(app_root),
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            ).decode("utf-8", errors="replace").strip()
+        except Exception:
+            build_time = ""
+    if not build_time:
+        try:
+            from hermes_cli import __release_date__
+
+            build_time = str(__release_date__ or "")
+        except Exception:
+            build_time = "unknown"
+
+    try:
+        from hermes_cli import __version__
+
+        runtime_version = str(__version__ or "unknown")
+    except Exception:
+        runtime_version = "unknown"
+
+    frozen = (app_root / "audit" / "HERMES_V1_RUNTIME_FROZEN.md").is_file()
+    return {
+        "git_sha": _sanitize_label(git_sha[:12] if git_sha != "unknown" else "unknown", max_len=40),
+        "runtime_version": _sanitize_label(runtime_version, max_len=32),
+        "runtime_frozen": "true" if frozen else "false",
+        "build_time": _sanitize_label(build_time or "unknown", max_len=40),
+    }
+
+
+def publish_runtime_info(meta: Optional[Dict[str, str]] = None) -> None:
+    """Set ``hermes_runtime_info`` gauge (Prometheus info pattern)."""
+
+    def _do() -> None:
+        m = meta or resolve_runtime_metadata()
+        _registry.set_gauge(
+            "hermes_runtime_info",
+            1.0,
+            labels={
+                "git_sha": m.get("git_sha", "unknown"),
+                "runtime_version": m.get("runtime_version", "unknown"),
+                "runtime_frozen": m.get("runtime_frozen", "false"),
+                "build_time": m.get("build_time", "unknown"),
+            },
+        )
+
+    _safe(_do)
+
+
+def record_engineering_task(
+    *,
+    outcome: str,
+    duration_seconds: float = 0.0,
+    estimated_cost_usd: float = 0.0,
+    source: str = "agent_turn",
+) -> None:
+    """Record an engineering-task outcome for the primary KPI.
+
+    ``cost per successful engineering task`` ≈
+    ``hermes_engineering_task_cost_usd_total{outcome="success"}``
+    / ``hermes_engineering_tasks_total{outcome="success"}``.
+
+    Outcomes are fixed enums only. ``source`` is a small allow-list so
+    future benchmarks can call this without exploding cardinality.
+    """
+
+    def _do() -> None:
+        outcomes = {"success", "failure", "aborted", "intervention"}
+        sources = {"agent_turn", "gateway_turn", "benchmark", "manual"}
+        o = outcome if outcome in outcomes else "failure"
+        s = source if source in sources else "manual"
+        _registry.inc(
+            "hermes_engineering_tasks_total",
+            labels={"outcome": o, "source": s},
+        )
+        if duration_seconds > 0:
+            _registry.observe(
+                "hermes_engineering_task_duration_seconds",
+                float(duration_seconds),
+                labels={"outcome": o},
+            )
+        # Aggregate USD only — never per-session or per-user.
+        if estimated_cost_usd > 0:
+            _registry.inc(
+                "hermes_engineering_task_cost_usd_total",
+                float(estimated_cost_usd),
+                labels={"outcome": o},
+            )
+
+    _safe(_do)
+
+
 def render_metrics() -> str:
     return _registry.render()
 
@@ -340,6 +473,7 @@ def start_metrics_server(
     """Start loopback metrics HTTP server. Returns True if listening."""
     global _enabled, _server, _server_thread, _bind_host, _bind_port
 
+    already_running = False
     with _lock:
         if not enabled:
             _enabled = False
@@ -353,34 +487,51 @@ def start_metrics_server(
             return False
         if _server is not None:
             _enabled = True
-            return True
+            already_running = True
+        else:
+            host = bind_host.strip() or "127.0.0.1"
+            try:
+                httpd = ThreadingHTTPServer((host, int(port)), _MetricsHandler)
+            except OSError as exc:
+                logger.error(
+                    "Observatory metrics bind failed on %s:%s: %s", host, port, exc
+                )
+                _enabled = False
+                return False
 
-        host = bind_host.strip() or "127.0.0.1"
-        try:
-            httpd = ThreadingHTTPServer((host, int(port)), _MetricsHandler)
-        except OSError as exc:
-            logger.error("Observatory metrics bind failed on %s:%s: %s", host, port, exc)
-            _enabled = False
+            bound = httpd.server_address[0]
+            if not _is_loopback_host(str(bound)):
+                httpd.server_close()
+                logger.error("Observatory refused bound address %r", bound)
+                _enabled = False
+                return False
+
+            _server = httpd
+            _bind_host = host
+            _bind_port = int(port)
+            _enabled = True
+
+    # Publish identity outside the lock (may shell out to git).
+    try:
+        publish_runtime_info()
+    except Exception:
+        logger.debug("runtime info publish failed open", exc_info=True)
+
+    if already_running:
+        return True
+
+    with _lock:
+        httpd = _server
+        host = _bind_host
+        port_n = _bind_port
+        if httpd is None:
             return False
-
-        # Belt-and-suspenders: refuse if the socket somehow isn't loopback.
-        bound = httpd.server_address[0]
-        if not _is_loopback_host(str(bound)):
-            httpd.server_close()
-            logger.error("Observatory refused bound address %r", bound)
-            _enabled = False
-            return False
-
-        _server = httpd
-        _bind_host = host
-        _bind_port = int(port)
-        _enabled = True
 
         def _serve() -> None:
             logger.info(
                 "Observatory metrics listening on http://%s:%s/metrics (loopback only)",
                 host,
-                port,
+                port_n,
             )
             try:
                 httpd.serve_forever(poll_interval=0.5)
@@ -441,6 +592,9 @@ __all__ = [
     "record_governor_event",
     "record_token_usage",
     "record_error",
+    "resolve_runtime_metadata",
+    "publish_runtime_info",
+    "record_engineering_task",
     "render_metrics",
     "reset_for_tests",
     "start_metrics_server",

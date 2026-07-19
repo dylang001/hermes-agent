@@ -52,6 +52,20 @@ Default is **`enabled: false`**.
 | `hermes_tokens_cache_read_total` | counter | — |
 | `hermes_tokens_cache_write_total` | counter | — |
 | `hermes_errors_total` | counter | `kind=api\|tool\|governor_blocked\|compression\|other` |
+| `hermes_runtime_info` | gauge (=1) | `git_sha`, `runtime_version`, `runtime_frozen`, `build_time` |
+| `hermes_engineering_tasks_total` | counter | `outcome=success\|failure\|aborted\|intervention`, `source=agent_turn\|gateway_turn\|benchmark\|manual` |
+| `hermes_engineering_task_duration_seconds` | histogram | `outcome=…` |
+| `hermes_engineering_task_cost_usd_total` | counter | `outcome=…` (aggregate USD only) |
+
+**Primary KPI (PromQL sketch):**
+
+```
+hermes_engineering_task_cost_usd_total{outcome="success"}
+  / hermes_engineering_tasks_total{outcome="success"}
+```
+
+Benchmark harnesses should call `record_engineering_task(..., source="benchmark")`
+so lab runs stay separable from live `agent_turn` traffic.
 
 **Tool `category` allow-list:** `terminal`, `code`, `file`, `web`, `browser`,
 `delegation`, `session`, `skills`, `memory`, `todo`, `mcp`, `kanban`, `other`.
@@ -66,7 +80,7 @@ Histogram buckets (seconds): `0.5, 1, 2, 5, 10, 30, 60, 120, +Inf`.
 - Session / user / chat / thread IDs
 - Model or provider names (cardinality + fingerprinting)
 - Per-skill or per-MCP tool names
-- Credit / dollar amounts
+- Per-session or per-user dollar amounts (aggregate by outcome only)
 - Weekly reports, alerts, Grafana, exporters (Phase 2+)
 
 ## Code map
@@ -76,6 +90,7 @@ Histogram buckets (seconds): `0.5, 1, 2, 5, 10, 30, 60, 120, +Inf`.
 | Registry + HTTP server | `agent/hermes_metrics.py` |
 | Gateway start/stop | `gateway/run.py` (`start_gateway`) |
 | Turn outcome | `gateway/run.py` (`_handle_message_with_agent`) |
+| Engineering-task KPI | `agent/turn_finalizer.py` |
 | Model + tokens | `agent/conversation_loop.py` |
 | Governor / compression | `agent/conversation_loop.py` |
 | Tools | `model_tools.py` |

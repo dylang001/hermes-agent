@@ -154,3 +154,68 @@ def test_metrics_do_not_affect_normal_execution_import_side():
         assert before.blocked is False and after.blocked is False
     finally:
         hm.stop_metrics_server()
+
+
+def test_runtime_info_published_on_start():
+    port = _free_port()
+    meta = {
+        "git_sha": "abcd1234efgh",
+        "runtime_version": "0.0.0-test",
+        "runtime_frozen": "true",
+        "build_time": "2026-07-19T00:00:00Z",
+    }
+    assert hm.start_metrics_server(enabled=True, bind_host="127.0.0.1", port=port)
+    try:
+        hm.publish_runtime_info(meta)
+        text = hm.render_metrics()
+        assert "hermes_runtime_info{" in text
+        assert 'git_sha="abcd1234efgh"' in text
+        assert 'runtime_version="0.0.0-test"' in text
+        assert 'runtime_frozen="true"' in text
+        assert 'build_time="2026-07-19T00:00:00Z"' in text
+        assert "hermes_runtime_info{" in text and " 1" in text
+    finally:
+        hm.stop_metrics_server()
+
+
+def test_engineering_task_kpi_aggregates_without_session_labels():
+    hm.start_metrics_server(enabled=True, bind_host="127.0.0.1", port=_free_port())
+    try:
+        hm.record_engineering_task(
+            outcome="success",
+            duration_seconds=12.0,
+            estimated_cost_usd=0.42,
+            source="benchmark",
+        )
+        hm.record_engineering_task(
+            outcome="failure",
+            duration_seconds=3.0,
+            estimated_cost_usd=0.01,
+            source="agent_turn",
+        )
+        # Unknown enums collapse to safe defaults
+        hm.record_engineering_task(
+            outcome="weird",
+            duration_seconds=1.0,
+            estimated_cost_usd=0.0,
+            source="evil_source",
+        )
+        text = hm.render_metrics()
+        assert (
+            'hermes_engineering_tasks_total{outcome="success",source="benchmark"} 1'
+            in text
+        )
+        assert (
+            'hermes_engineering_tasks_total{outcome="failure",source="agent_turn"} 1'
+            in text
+        )
+        assert (
+            'hermes_engineering_tasks_total{outcome="failure",source="manual"} 1'
+            in text
+        )
+        assert 'hermes_engineering_task_cost_usd_total{outcome="success"} 0.42' in text
+        assert "session_id" not in text
+        assert "user_id" not in text
+        assert "prompt" not in text.lower()
+    finally:
+        hm.stop_metrics_server()

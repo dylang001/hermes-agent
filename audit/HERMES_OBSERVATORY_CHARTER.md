@@ -1,8 +1,8 @@
 # Hermes Observatory — Charter
 
-**Status:** Phase 1 implemented (awaiting scrape-stack approval)  
+**Status:** Phase 1 live on VPS (soak 1–2 weeks before Phase 2 scrape stack)  
 **Date:** 2026-07-19  
-**Constraint:** Prometheus/Grafana/exporters are **VPS ops** under `/opt/hermes/observatory/`. They do **not** land as new third-party product plugins under `plugins/` (AGENTS.md). Hermes core only exposes a scrapeable metrics surface + weekly report.
+**Constraint:** Prometheus/Grafana/exporters are **VPS ops** under `/opt/hermes/observatory/`. They do **not** land as new third-party product plugins under `plugins/` (AGENTS.md). Hermes core only exposes a scrapeable metrics surface + weekly report. Do **not** build dashboards until soak data shows which metrics are useful.
 
 ## Philosophy
 
@@ -28,8 +28,10 @@ Weekly health report (cron → Telegram / file)
 ### Phase 1 — Hermes metrics surface (in-repo)
 - Process-local counters/histograms (no external SaaS)
 - `GET /metrics` on loopback only
-- Config: `observatory.enabled` in `config.yaml` (default off until VPS wired)
+- Config: `observatory.enabled` in `config.yaml` (default off; enable on VPS for soak)
 - Emit: requests, success/fail, latency, model/tool calls, live tokens, compressions (auto/emergency), cache read share when known
+- Runtime identity: `hermes_runtime_info{git_sha,runtime_version,runtime_frozen,build_time}`
+- Primary KPI: `hermes_engineering_tasks_*` + aggregate `hermes_engineering_task_cost_usd_total` (cost per successful engineering task)
 
 ### Phase 2 — VPS stack (ops, not git plugins/)
 - docker-compose: prometheus, grafana, node_exporter, systemd_exporter
