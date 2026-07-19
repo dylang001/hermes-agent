@@ -1382,6 +1382,16 @@ DEFAULT_CONFIG = {
         "max_memory_prefetch_tokens": 1_500,
     },
 
+    # Observatory Phase 1 — process-local Prometheus text metrics.
+    # Loopback-only HTTP scrape (default off). Never bind non-loopback.
+    # No prompts, credentials, session IDs, or tool arguments are exported.
+    # See docs/observatory.md. Phase 2 (Prometheus/Grafana) is VPS ops only.
+    "observatory": {
+        "enabled": False,
+        "bind_host": "127.0.0.1",
+        "port": 9108,
+    },
+
     # Maximum characters returned by a single read_file call.  Reads that
     # exceed this are rejected with guidance to use offset+limit.
     # 100K chars ≈ 25–35K tokens across typical tokenisers.

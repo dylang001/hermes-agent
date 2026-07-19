@@ -1096,6 +1096,12 @@ def run_conversation(
                 f"📦 Pre-API compression: ~{request_pressure_tokens:,} tokens "
                 f"near the context/output limit. Compacting before the next model call."
             )
+            try:
+                from agent.hermes_metrics import record_compression
+
+                record_compression(kind="auto")
+            except Exception:
+                pass
             messages, active_system_prompt = agent._compress_context(
                 messages,
                 system_message,
@@ -1160,6 +1166,25 @@ def run_conversation(
                     f"{int(getattr(_gov, 'tokens_total', 0) or 0):,}",
                 )
 
+            try:
+                from agent.hermes_metrics import record_governor_event
+
+                if _gov.blocked:
+                    _gov_kind = "blocked"
+                elif any("emergency" in a for a in (_gov.actions or [])):
+                    _gov_kind = "emergency"
+                elif _gov.recovery == "compact":
+                    _gov_kind = "compact"
+                elif any("soft_warning" in a for a in (_gov.actions or [])):
+                    _gov_kind = "soft_warning"
+                else:
+                    _gov_kind = "pass"
+                record_governor_event(
+                    kind=_gov_kind, live_tokens=int(_gov.tokens_after or 0)
+                )
+            except Exception:
+                pass
+
             if (
                 _gov.recovery == "compact"
                 and _gov_attempts < 1
@@ -1174,6 +1199,12 @@ def run_conversation(
                 agent._emit_status(
                     f"📦 Compacting conversation (~{_gov.tokens_after:,} live tokens)…"
                 )
+                try:
+                    from agent.hermes_metrics import record_compression
+
+                    record_compression(kind="governor")
+                except Exception:
+                    pass
                 messages, active_system_prompt = agent._compress_context(
                     messages,
                     system_message,
@@ -1198,6 +1229,12 @@ def run_conversation(
 
             if _gov.blocked:
                 # Last resort only — recovery already exhausted.
+                try:
+                    from agent.hermes_metrics import record_error
+
+                    record_error(kind="governor_blocked")
+                except Exception:
+                    pass
                 final_response = (
                     "⚠️ I couldn't automatically recover enough context to continue "
                     f"safely ({_gov.block_reason}). Starting a fresh working context "
@@ -2343,6 +2380,25 @@ def run_conversation(
                         prompt_tokens, completion_tokens, total_tokens,
                         api_duration, _cache_pct,
                     )
+                    try:
+                        from agent.hermes_metrics import (
+                            record_model_call,
+                            record_token_usage,
+                        )
+
+                        record_model_call(success=True, duration_seconds=api_duration)
+                        record_token_usage(
+                            prompt_tokens=int(prompt_tokens or 0),
+                            completion_tokens=int(completion_tokens or 0),
+                            cache_read_tokens=int(
+                                canonical_usage.cache_read_tokens or 0
+                            ),
+                            cache_write_tokens=int(
+                                canonical_usage.cache_write_tokens or 0
+                            ),
+                        )
+                    except Exception:
+                        pass
 
                     # On the MoA path, agent.model/provider are the virtual
                     # preset name ("closed") and "moa", which have no pricing

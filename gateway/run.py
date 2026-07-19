@@ -11857,6 +11857,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 _platform_name, source.chat_id or "unknown",
                 _response_time, _api_calls, _resp_len,
             )
+            try:
+                from agent.hermes_metrics import record_gateway_turn
+
+                record_gateway_turn(
+                    success=_should_clear_resume_pending_after_turn(agent_result),
+                    duration_seconds=_response_time,
+                )
+            except Exception:
+                pass
 
             # NOTE: the cross-process cache-coherence re-baseline
             # (_refresh_agent_cache_message_count) is intentionally deferred
@@ -21164,9 +21173,24 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
         name="gateway-housekeeping",
     )
     housekeeping_thread.start()
-    
+
+    # Observatory Phase 1 — loopback /metrics (config-gated, fail-open).
+    try:
+        from agent.hermes_metrics import load_and_start_from_config
+
+        load_and_start_from_config()
+    except Exception:
+        logger.debug("Observatory metrics start skipped", exc_info=True)
+
     # Wait for shutdown
     await runner.wait_for_shutdown()
+
+    try:
+        from agent.hermes_metrics import stop_metrics_server
+
+        stop_metrics_server()
+    except Exception:
+        pass
 
     try:
         from hermes_cli.nous_auth_keepalive import stop_nous_auth_keepalive

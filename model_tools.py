@@ -1297,6 +1297,22 @@ def handle_function_call(
                     pass
         duration_ms = int((time.monotonic() - _dispatch_start) * 1000)
 
+        try:
+            from agent.hermes_metrics import record_tool_call, tool_category
+
+            _tool_ok = True
+            if isinstance(result, str):
+                _low = result[:64].lower()
+                if '"success": false' in result[:200].lower() or _low.startswith("error"):
+                    _tool_ok = False
+            record_tool_call(
+                category=tool_category(function_name),
+                success=_tool_ok,
+                duration_seconds=duration_ms / 1000.0,
+            )
+        except Exception:
+            pass
+
         _emit_post_tool_call_hook(
             function_name=function_name,
             function_args=function_args,
