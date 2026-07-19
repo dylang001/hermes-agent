@@ -258,6 +258,7 @@ def test_adaptive_scales_with_context_window():
     )
     m3 = base.resolve(context_length=1_000_000, profile="interactive")
     small = base.resolve(context_length=128_000, profile="interactive")
+    assert m3.enabled is True
     assert m3.max_live_tokens == 900_000  # 90% emergency
     assert m3.auto_compact_tokens == 750_000  # 75% compaction
     assert m3.optimization_tokens == 550_000
@@ -265,6 +266,23 @@ def test_adaptive_scales_with_context_window():
     assert m3.max_live_tokens > small.max_live_tokens
     assert m3.compression_threshold == 0.70
     assert m3.protect_last_n == 24
+
+
+def test_adaptive_without_known_window_disables_instead_of_28k_fallback():
+    """Unknown/small windows must not silently compact at absolute 28k."""
+    base = ContextGovernorConfig(
+        enabled=True, budget_mode="adaptive", profile="interactive"
+    )
+    unknown = base.resolve(context_length=0, profile="interactive")
+    tiny = base.resolve(context_length=32_000, profile="interactive")
+    assert unknown.enabled is False
+    assert tiny.enabled is False
+    # Explicit absolute mode still keeps the legacy knobs.
+    absolute = ContextGovernorConfig(
+        enabled=True, budget_mode="absolute", max_live_tokens=28_000
+    ).resolve(context_length=0, profile="interactive")
+    assert absolute.enabled is True
+    assert absolute.max_live_tokens == 28_000
 
 
 def test_batch_profile_compacts_earlier_than_interactive():

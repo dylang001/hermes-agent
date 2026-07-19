@@ -141,6 +141,10 @@ _RETRIEVAL_CEILING = 60_000
 _PREFETCH_FLOOR = 400
 _PREFETCH_CEILING = 8_000
 _MIN_CONTEXT_FOR_ADAPTIVE = 8_000
+# Below this, adaptive mode must NOT silently fall back to the legacy 28k
+# absolute ceiling (that destroyed MiniMax continuity when context_length
+# resolved to 0). Pass through instead and log loudly.
+_MIN_SAFE_ADAPTIVE_WINDOW = 64_000
 
 
 @dataclass
@@ -327,6 +331,22 @@ class ContextGovernorConfig:
 
         window = int(context_length or 0)
         cfg.context_length = window
+
+        # Adaptive without a known large window: refuse the silent 28k
+        # absolute fallback. Stock compression.threshold handles pressure.
+        if cfg.budget_mode == "adaptive" and window < _MIN_SAFE_ADAPTIVE_WINDOW:
+            logger.warning(
+                "Context governor: adaptive mode requires context_length≥%s "
+                "(got %s) — disabling governor instead of falling back to "
+                "absolute 28k live budget. Set model.context_length or fix "
+                "provider context detection; or set budget_mode: absolute "
+                "explicitly if you want the legacy ceiling.",
+                f"{_MIN_SAFE_ADAPTIVE_WINDOW:,}",
+                f"{window:,}",
+            )
+            cfg.enabled = False
+            cfg.resolved = True
+            return cfg
 
         if cfg.budget_mode == "absolute" or window < _MIN_CONTEXT_FOR_ADAPTIVE:
             # Absolute / tiny-window path — keep explicit token knobs.

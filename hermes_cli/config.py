@@ -1373,7 +1373,11 @@ DEFAULT_CONFIG = {
     # (see docs/context-policy.md). Absolute token knobs apply only when
     # budget_mode: absolute. Live budget = messages + prefetch — NOT schemas.
     "context_governor": {
-        "enabled": True,
+        # Default OFF: without a resolved model context window, adaptive mode
+        # previously fell back to a hard 28k live budget and compacted MiniMax
+        # sessions far too early. Prefer stock compression.threshold + cache.
+        # Re-enable only when model.context_length (or auto-detect) is known.
+        "enabled": False,
         "budget_mode": "adaptive",
         "profile": "auto",  # auto | interactive | autonomous | batch
         # Optional top-level ratio overrides (else profile defaults).
