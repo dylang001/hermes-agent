@@ -93,8 +93,8 @@ def test_check_for_updates_expired_cache(tmp_path, monkeypatch):
         result = check_for_updates()
 
     assert result == 5
-    # origin probe + is-shallow probe + git fetch + git rev-list
-    assert mock_run.call_count == 4
+    # origin probe + is-shallow probe + official fetch + rev-parse + rev-list
+    assert mock_run.call_count >= 4
 
 
 def test_check_for_updates_official_ssh_origin_uses_https_probe(tmp_path):
@@ -156,7 +156,7 @@ def test_check_via_local_git_shallow_clone_behind_reports_no_count(tmp_path):
             return MagicMock(returncode=0, stdout="")
         if cmd == ["git", "rev-parse", "HEAD"]:
             return MagicMock(returncode=0, stdout="local-sha\n")
-        if cmd == ["git", "rev-parse", "FETCH_HEAD"]:
+        if cmd == ["git", "rev-parse", banner._HERMES_UPSTREAM_REF]:
             return MagicMock(returncode=0, stdout="upstream-sha\n")
         if cmd[:3] == ["git", "rev-list", "--count"]:
             raise AssertionError("shallow path must not count across the boundary")
@@ -167,7 +167,15 @@ def test_check_via_local_git_shallow_clone_behind_reports_no_count(tmp_path):
 
     assert result == banner.UPDATE_AVAILABLE_NO_COUNT
     # The shallow fetch must preserve the boundary (--depth 1), not unshallow.
-    assert ["git", "fetch", "origin", "--depth", "1", "--quiet"] in calls
+    assert [
+        "git",
+        "fetch",
+        "--depth",
+        "1",
+        "--quiet",
+        banner._UPSTREAM_REPO_URL,
+        f"+refs/heads/main:{banner._HERMES_UPSTREAM_REF}",
+    ] in calls
 
 
 def test_check_via_local_git_shallow_clone_up_to_date(tmp_path):
@@ -187,7 +195,7 @@ def test_check_via_local_git_shallow_clone_up_to_date(tmp_path):
             return MagicMock(returncode=0, stdout="")
         if cmd == ["git", "rev-parse", "HEAD"]:
             return MagicMock(returncode=0, stdout="same-sha\n")
-        if cmd == ["git", "rev-parse", "FETCH_HEAD"]:
+        if cmd == ["git", "rev-parse", banner._HERMES_UPSTREAM_REF]:
             return MagicMock(returncode=0, stdout="same-sha\n")
         raise AssertionError(f"unexpected git command: {cmd!r}")
 
@@ -197,22 +205,32 @@ def test_check_via_local_git_shallow_clone_up_to_date(tmp_path):
     assert result == 0
 
 
-def test_check_via_local_git_full_clone_keeps_exact_count(tmp_path):
-    """Full (non-shallow) clones keep the exact rev-list count path."""
+def test_check_via_local_git_full_clone_uses_official_upstream(tmp_path):
+    """Full clones sync Nous main via HTTPS — not a possibly-stale origin/main."""
     import hermes_cli.banner as banner
 
     repo_dir = tmp_path / "hermes-agent"
     repo_dir.mkdir()
     (repo_dir / ".git").mkdir()
 
+    calls = []
+
     def fake_run(cmd, **kwargs):
+        calls.append(cmd)
         if cmd == ["git", "remote", "get-url", "origin"]:
             return MagicMock(returncode=0, stdout="https://github.com/NousResearch/hermes-agent.git\n")
         if cmd == ["git", "rev-parse", "--is-shallow-repository"]:
             return MagicMock(returncode=0, stdout="false\n")
-        if cmd[:2] == ["git", "fetch"]:
+        if cmd[:3] == ["git", "fetch", "--quiet"] and cmd[3] == banner._UPSTREAM_REPO_URL:
             return MagicMock(returncode=0, stdout="")
-        if cmd[:3] == ["git", "rev-list", "--count"]:
+        if cmd == ["git", "rev-parse", banner._HERMES_UPSTREAM_REF]:
+            return MagicMock(returncode=0, stdout="upstream-sha\n")
+        if cmd == [
+            "git",
+            "rev-list",
+            "--count",
+            f"HEAD..{banner._HERMES_UPSTREAM_REF}",
+        ]:
             return MagicMock(returncode=0, stdout="7\n")
         raise AssertionError(f"unexpected git command: {cmd!r}")
 
@@ -220,6 +238,11 @@ def test_check_via_local_git_full_clone_keeps_exact_count(tmp_path):
         result = banner._check_via_local_git(repo_dir)
 
     assert result == 7
+    assert any(
+        c[:3] == ["git", "fetch", "--quiet"] and c[3] == banner._UPSTREAM_REPO_URL
+        for c in calls
+    )
+    assert not any(c[:3] == ["git", "fetch", "origin"] for c in calls)
 
 
 def test_check_via_local_git_bundle_origin_uses_official_upstream(tmp_path):
