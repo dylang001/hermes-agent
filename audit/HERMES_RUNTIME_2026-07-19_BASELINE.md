@@ -1,7 +1,7 @@
 # Baseline: `runtime-2026-07-19`
 
 **Program:** Hermes Reliability Program (post–runtime-architecture phase)  
-**Tag:** `runtime-2026-07-19` → `acdeb2f955f2c79ffb07a63a6344a23312a77566`  
+**Tag:** `runtime-2026-07-19` (annotated; `git rev-parse runtime-2026-07-19^{}`)  
 **Runtime tip inside tag (hotfix):** `b66356363562efa6d6bb63f8ad4a7bad6ef39f1d`  
 **Declared:** 2026-07-19
 
@@ -12,7 +12,7 @@ This is the known-good reference for the frozen runtime + adaptive context polic
 | Field | Local | VPS (at tag declaration) |
 |-------|-------|--------------------------|
 | Branch | `upgrade/hermes-latest-upstream-20260716` | `hermes-phase1-approved` |
-| HEAD | `acdeb2f955f2…` (tag) / runtime `b663563635…` | `4a322dcd084a1a3dc1032fe8511896bc3e7a21e0` |
+| HEAD | tag tip (reliability docs) / runtime `b663563635…` | `4a322dcd084a1a3dc1032fe8511896bc3e7a21e0` |
 | Relationship | Canonical tip | `git am` of runtime patches → **same trees**, different SHAs |
 | Runtime version | `0.18.2` | `0.18.2` (`hermes_runtime_info`) |
 | Upstream base | `1d48863b856d7a82412e1b47d87e30d0378b851f` | same lineage |
