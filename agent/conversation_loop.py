@@ -639,6 +639,7 @@ def run_conversation(
     truncated_tool_call_retries = 0
     truncated_response_parts: List[str] = []
     compression_attempts = 0
+    agent._context_governor_recovery_attempts = 0
     _turn_exit_reason = "unknown"  # Diagnostic: why the loop ended
     # Last composed answer intentionally held back by a verification gate. If
     # that continuation consumes the remaining budget, this is the best
@@ -1126,10 +1127,10 @@ def run_conversation(
             agent.iteration_budget.refund()
             continue
 
-        # Absolute live-token governor (Phase 1). Independent of model window
-        # size: prune/summarize to stay under max_live_tokens; if still over,
-        # block the provider call — never silently send an oversized request.
-        # Memory prefetch was already capped at injection time above.
+        # Absolute live-transcript governor. Budgets messages (+ prefetch),
+        # not tool schemas. Recover-first: prune → auto-compact → emergency
+        # truncate → only then hard-fail. Tool-schema overhead alone must
+        # never produce a user-visible block (that made /compress a no-op).
         try:
             from agent.context_governor import ContextGovernorConfig, govern_request
 
@@ -1137,23 +1138,70 @@ def run_conversation(
             if _gov_cfg is None:
                 _gov_cfg = ContextGovernorConfig.load()
                 agent._context_governor_config = _gov_cfg
+
+            _gov_attempts = int(getattr(agent, "_context_governor_recovery_attempts", 0) or 0)
+            # Pass 0: prune + request auto-compact. Pass 1+: emergency truncate
+            # before any user-visible failure (never block on first sight).
             _gov = govern_request(
                 api_messages,
                 tools=agent.tools or None,
                 memory_prefetch="",
                 config=_gov_cfg,
+                after_recovery=_gov_attempts > 0,
+                allow_emergency_truncate=_gov_attempts > 0,
             )
             if _gov.actions:
                 logger.info(
-                    "Context governor: %s (tokens %s → %s)",
+                    "Context governor: %s (live %s → %s; tools≈%s; total≈%s)",
                     "; ".join(_gov.actions),
                     f"{_gov.tokens_before:,}",
                     f"{_gov.tokens_after:,}",
+                    f"{int(getattr(_gov, 'tokens_tools', 0) or 0):,}",
+                    f"{int(getattr(_gov, 'tokens_total', 0) or 0):,}",
                 )
+
+            if (
+                _gov.recovery == "compact"
+                and _gov_attempts < 1
+                and agent.compression_enabled
+            ):
+                agent._context_governor_recovery_attempts = 1
+                logger.info(
+                    "Context governor recovery: auto-compacting live transcript "
+                    "(live≈%s)",
+                    f"{_gov.tokens_after:,}",
+                )
+                agent._emit_status(
+                    f"📦 Compacting conversation (~{_gov.tokens_after:,} live tokens)…"
+                )
+                messages, active_system_prompt = agent._compress_context(
+                    messages,
+                    system_message,
+                    approx_tokens=max(
+                        int(getattr(_gov, "tokens_total", 0) or 0),
+                        int(_gov.tokens_after or 0),
+                    ),
+                    task_id=effective_task_id,
+                )
+                agent._empty_content_retries = 0
+                agent._thinking_prefill_retries = 0
+                agent._last_content_with_tools = None
+                agent._last_content_tools_all_housekeeping = False
+                agent._mute_post_response = False
+                conversation_history = conversation_history_after_compression(
+                    agent, messages
+                )
+                api_call_count -= 1
+                agent._api_call_count = api_call_count
+                agent.iteration_budget.refund()
+                continue
+
             if _gov.blocked:
+                # Last resort only — recovery already exhausted.
                 final_response = (
-                    "❌ Request blocked by context governor: "
-                    f"{_gov.block_reason}"
+                    "⚠️ I couldn't automatically recover enough context to continue "
+                    f"safely ({_gov.block_reason}). Starting a fresh working context "
+                    "is the most reliable next step — send /new, then retry your request."
                 )
                 failed = True
                 _turn_exit_reason = "context_governor_blocked"
@@ -1165,8 +1213,14 @@ def run_conversation(
                     agent.iteration_budget.refund()
                 except Exception:
                     pass
+                agent._context_governor_recovery_attempts = 0
                 break
+
+            # Soft compact signal with compression disabled / noop path:
+            # proceed with pruned messages rather than blocking the user.
             api_messages = _gov.messages
+            if _gov.recovery != "compact":
+                agent._context_governor_recovery_attempts = 0
         except Exception as _gov_exc:
             logger.warning("Context governor failed open: %s", _gov_exc)
 

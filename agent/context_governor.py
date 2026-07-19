@@ -1,23 +1,38 @@
-"""Absolute live-token context governor (Phase 1 context-cost remediation).
+"""Live-context governor — recover first, hard-block last.
 
-Unlike compression.threshold (a fraction of the model window), this governor
-enforces a hard live-input budget independent of context_length. Oversized
-requests are pruned/summarized before the provider call; if still over budget
-the request is **blocked** — never silently sent.
+Phase 1 introduced an absolute live-token budget. The first cut treated the
+governor as a gatekeeper and counted tool schemas toward the same budget as
+the transcript. That created an unreachable UX:
+
+* Governor: "28,015 > 28,000 — blocked"
+* /compress: "4 messages, ~1,476 tokens — nothing to compress"
+
+Tool schemas are not compressible by /compress. This module now:
+
+1. Budgets the **live transcript** (messages + memory prefetch), not tool schemas
+2. Prunes/summarizes tool results under pressure
+3. Signals **recovery** (auto-compact) instead of blocking ordinary turns
+4. Hard-blocks only after emergency truncation still cannot fit the transcript
+
+Tool/system overhead is reported for diagnostics but never alone causes a
+user-visible hard stop.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Literal, Optional, Sequence
 
 from agent.model_metadata import (
+    estimate_messages_tokens_rough,
     estimate_request_tokens_rough,
     estimate_tokens_rough,
 )
 
 logger = logging.getLogger(__name__)
+
+RecoveryAction = Literal["none", "compact", "fail"]
 
 # Tool names whose results count toward the retrieval budget.
 _RETRIEVAL_TOOLS = frozenset(
@@ -39,10 +54,15 @@ _TOOL_SUMMARY_MAX_CHARS = 240
 
 @dataclass
 class ContextGovernorConfig:
-    """Hard budgets for a single provider request."""
+    """Budgets for a single provider request's live transcript."""
 
     enabled: bool = True
+    # Compressible live payload budget (messages + prefetch). NOT tool schemas.
     max_live_tokens: int = 28_000
+    # Soft tiers — orchestrate recovery before the hard ceiling.
+    target_tokens: int = 24_000
+    soft_warning_tokens: int = 26_000
+    auto_compact_tokens: int = 27_000
     max_retrieval_tokens: int = 5_000
     max_tool_result_tokens: int = 6_000
     max_memory_prefetch_tokens: int = 1_500
@@ -52,9 +72,18 @@ class ContextGovernorConfig:
         raw = raw or {}
         if not isinstance(raw, dict):
             return cls()
+        max_live = int(raw.get("max_live_tokens", 28_000) or 28_000)
         return cls(
             enabled=bool(raw.get("enabled", True)),
-            max_live_tokens=int(raw.get("max_live_tokens", 28_000) or 28_000),
+            max_live_tokens=max_live,
+            target_tokens=int(raw.get("target_tokens", 24_000) or 24_000),
+            soft_warning_tokens=int(
+                raw.get("soft_warning_tokens", 26_000) or 26_000
+            ),
+            auto_compact_tokens=int(
+                raw.get("auto_compact_tokens", min(27_000, max_live - 1_000))
+                or min(27_000, max_live - 1_000)
+            ),
             max_retrieval_tokens=int(raw.get("max_retrieval_tokens", 5_000) or 5_000),
             max_tool_result_tokens=int(raw.get("max_tool_result_tokens", 6_000) or 6_000),
             max_memory_prefetch_tokens=int(
@@ -80,7 +109,14 @@ class GovernorResult:
     memory_prefetch: str
     tokens_before: int
     tokens_after: int
+    tokens_messages: int = 0
+    tokens_tools: int = 0
+    tokens_total: int = 0
     actions: List[str] = field(default_factory=list)
+    # recovery: none = proceed; compact = caller should auto-compress+retry;
+    # fail = every in-governor recovery exhausted (caller may still try
+    # session continuation before surfacing an error).
+    recovery: RecoveryAction = "none"
     blocked: bool = False
     block_reason: str = ""
     config: ContextGovernorConfig = field(default_factory=ContextGovernorConfig)
@@ -172,7 +208,6 @@ def _prune_tool_results(
 ) -> List[Dict[str, Any]]:
     """Cap aggregate tool-result and retrieval budgets, oldest first."""
     out = [dict(m) for m in messages]
-    # Collect tool message indices oldest→newest.
     tool_idxs = [i for i, m in enumerate(out) if m.get("role") == "tool"]
 
     def _budget_ok() -> bool:
@@ -193,9 +228,10 @@ def _prune_tool_results(
     if _budget_ok():
         return out
 
-    # Protect the most recent tool result; prune older ones.
     protect_newest = 1
-    prune_order = tool_idxs[:-protect_newest] if len(tool_idxs) > protect_newest else tool_idxs[:]
+    prune_order = (
+        tool_idxs[:-protect_newest] if len(tool_idxs) > protect_newest else tool_idxs[:]
+    )
     for i in prune_order:
         if _budget_ok():
             break
@@ -206,34 +242,84 @@ def _prune_tool_results(
         _set_msg_content(out[i], _summarize_tool_content(name, content))
         actions.append(f"tool_result summarized ({name or 'tool'})")
 
-    # If still over, truncate the newest tool result too.
     if not _budget_ok() and tool_idxs:
         i = tool_idxs[-1]
         content = _msg_content(out[i])
         name = _tool_name_for_result(out, out[i])
-        # Split remaining budget roughly.
         remain = max(80, max_tool_result_tokens // 2)
         if name in _RETRIEVAL_TOOLS:
             remain = min(remain, max(80, max_retrieval_tokens // 2))
-        _set_msg_content(out[i], _truncate_text(content, remain, f"{name or 'tool'}-result"))
+        _set_msg_content(
+            out[i], _truncate_text(content, remain, f"{name or 'tool'}-result")
+        )
         actions.append(f"tool_result truncated newest ({name or 'tool'})")
 
     return out
 
 
-def _estimate(
+def _estimate_components(
     messages: Sequence[Dict[str, Any]],
     tools: Optional[Sequence[Any]],
     memory_prefetch: str,
-) -> int:
-    # Memory prefetch is injected into the current user message at send time;
-    # include it in the estimate so we don't under-count.
+) -> tuple[int, int, int, int]:
+    """Return (live_tokens, messages_tokens, tools_tokens, total_tokens).
+
+    *live_tokens* is the compressible budget: messages + memory prefetch.
+    Tool schemas are reported separately and must not alone hard-block.
+    """
     msgs = list(messages)
-    if memory_prefetch and msgs:
-        # Shallow estimate: add prefetch tokens on top.
-        base = estimate_request_tokens_rough(msgs, tools=tools)
-        return base + estimate_tokens_rough(memory_prefetch)
-    return estimate_request_tokens_rough(msgs, tools=tools)
+    messages_tokens = estimate_messages_tokens_rough(msgs) if msgs else 0
+    prefetch_tokens = estimate_tokens_rough(memory_prefetch) if memory_prefetch else 0
+    live_tokens = messages_tokens + prefetch_tokens
+    tools_list = list(tools) if tools is not None else None
+    tools_tokens = 0
+    if tools_list:
+        # Reuse the shared estimator's tool bucket (total − messages − empty sys).
+        total_with_tools = estimate_request_tokens_rough(msgs, tools=tools_list)
+        tools_tokens = max(0, total_with_tools - messages_tokens)
+    total_tokens = live_tokens + tools_tokens
+    return live_tokens, messages_tokens, tools_tokens, total_tokens
+
+
+def _emergency_truncate_transcript(
+    messages: List[Dict[str, Any]],
+    *,
+    max_live_tokens: int,
+    actions: List[str],
+) -> List[Dict[str, Any]]:
+    """Last-resort in-governor shrink: keep system + last user turn.
+
+    Used only after prune + caller compact recovery have already failed.
+    """
+    if not messages:
+        return messages
+    out = [dict(m) for m in messages]
+    system = [m for m in out if m.get("role") == "system"]
+    # Keep the final user message (and any trailing tool/assistant pair after
+    # the previous user would be unusual for a blocked turn — keep last user).
+    last_user_idx = None
+    for i in range(len(out) - 1, -1, -1):
+        if out[i].get("role") == "user":
+            last_user_idx = i
+            break
+    kept: List[Dict[str, Any]] = []
+    kept.extend(system[:1])
+    if last_user_idx is not None:
+        user_msg = dict(out[last_user_idx])
+        content = _msg_content(user_msg)
+        # Leave room under budget for a short system prefix.
+        sys_tok = estimate_messages_tokens_rough(kept) if kept else 0
+        user_budget = max(200, max_live_tokens - sys_tok - 50)
+        if estimate_tokens_rough(content) > user_budget:
+            _set_msg_content(
+                user_msg, _truncate_text(content, user_budget, "user-message")
+            )
+            actions.append("emergency_truncated_user_message")
+        kept.append(user_msg)
+    elif out:
+        kept.append(out[-1])
+    actions.append("emergency_transcript_truncated")
+    return kept
 
 
 def govern_request(
@@ -242,15 +328,31 @@ def govern_request(
     tools: Optional[Sequence[Any]] = None,
     memory_prefetch: str = "",
     config: Optional[ContextGovernorConfig] = None,
+    after_recovery: bool = False,
+    allow_emergency_truncate: bool = False,
 ) -> GovernorResult:
-    """Enforce absolute live-token budgets. May mutate/prune; may block."""
+    """Enforce live-transcript budgets with recover-first semantics.
+
+    Parameters
+    ----------
+    after_recovery:
+        True when the caller already ran auto-compression for this pressure
+        event. Enables the fail/emergency path instead of asking for compact
+        again.
+    allow_emergency_truncate:
+        When True (and after_recovery), aggressively truncate the transcript
+        to system + last user message before declaring failure.
+    """
     cfg = config or ContextGovernorConfig()
     tools_list = list(tools) if tools is not None else None
     msgs = [dict(m) for m in messages]
     prefetch = memory_prefetch or ""
     actions: List[str] = []
 
-    tokens_before = _estimate(msgs, tools_list, prefetch)
+    live_before, _, tools_tok_before, total_before = _estimate_components(
+        msgs, tools_list, prefetch
+    )
+    tokens_before = live_before  # live budget is the contract
 
     if not cfg.enabled:
         return GovernorResult(
@@ -259,7 +361,11 @@ def govern_request(
             memory_prefetch=prefetch,
             tokens_before=tokens_before,
             tokens_after=tokens_before,
+            tokens_messages=live_before,
+            tokens_tools=tools_tok_before,
+            tokens_total=total_before,
             actions=[],
+            recovery="none",
             blocked=False,
             config=cfg,
         )
@@ -274,11 +380,12 @@ def govern_request(
         actions=actions,
     )
 
-    tokens_after = _estimate(msgs, tools_list, prefetch)
+    live_after, msg_tok, tools_tok, total_after = _estimate_components(
+        msgs, tools_list, prefetch
+    )
 
-    # Second pass: if still over live budget, summarize ALL non-protected
-    # tool results more aggressively (keep last 2 user/assistant turns).
-    if tokens_after > cfg.max_live_tokens:
+    # Pressure pass: summarize older tool results more aggressively.
+    if live_after > cfg.auto_compact_tokens:
         tool_idxs = [i for i, m in enumerate(msgs) if m.get("role") == "tool"]
         for i in tool_idxs[:-1]:
             content = _msg_content(msgs[i])
@@ -286,26 +393,87 @@ def govern_request(
                 name = _tool_name_for_result(msgs, msgs[i])
                 _set_msg_content(msgs[i], _summarize_tool_content(name, content))
                 actions.append(f"tool_result force-summarized ({name or 'tool'})")
-        tokens_after = _estimate(msgs, tools_list, prefetch)
-
-    blocked = tokens_after > cfg.max_live_tokens
-    block_reason = ""
-    if blocked:
-        block_reason = (
-            f"Live context ~{tokens_after:,} tokens exceeds absolute governor "
-            f"limit of {cfg.max_live_tokens:,}. Request blocked — prune history "
-            f"with /compress or /new, or raise context_governor.max_live_tokens."
+        live_after, msg_tok, tools_tok, total_after = _estimate_components(
+            msgs, tools_list, prefetch
         )
-        actions.append("blocked_oversized_request")
-        logger.warning(block_reason)
+
+    if tools_tok and total_after > cfg.max_live_tokens and live_after <= cfg.max_live_tokens:
+        # Fixed tool/schema overhead dominates the *total* request size, but
+        # the live transcript fits. Never hard-block for this — /compress
+        # cannot shrink tool schemas.
+        actions.append(
+            f"tools_overhead_outside_live_budget tools≈{tools_tok:,} "
+            f"live≈{live_after:,} total≈{total_after:,}"
+        )
+        logger.info(
+            "Context governor: tool schemas ≈%s tokens sit outside the live "
+            "transcript budget (live≈%s / max=%s); allowing request",
+            f"{tools_tok:,}",
+            f"{live_after:,}",
+            f"{cfg.max_live_tokens:,}",
+        )
+
+    recovery: RecoveryAction = "none"
+    blocked = False
+    block_reason = ""
+
+    if live_after > cfg.max_live_tokens:
+        if not after_recovery:
+            recovery = "compact"
+            actions.append("recovery_compact_needed")
+            logger.info(
+                "Context governor: live transcript ≈%s > max %s — requesting "
+                "auto-compaction (tools≈%s not counted against live budget)",
+                f"{live_after:,}",
+                f"{cfg.max_live_tokens:,}",
+                f"{tools_tok:,}",
+            )
+        else:
+            if allow_emergency_truncate:
+                msgs = _emergency_truncate_transcript(
+                    msgs, max_live_tokens=cfg.max_live_tokens, actions=actions
+                )
+                live_after, msg_tok, tools_tok, total_after = _estimate_components(
+                    msgs, tools_list, prefetch
+                )
+            if live_after > cfg.max_live_tokens:
+                recovery = "fail"
+                blocked = True
+                block_reason = (
+                    f"Live transcript ~{live_after:,} tokens still exceeds "
+                    f"governor budget of {cfg.max_live_tokens:,} after automatic "
+                    f"recovery. Start a fresh session with /new, or continue in a "
+                    f"new working context."
+                )
+                actions.append("blocked_after_recovery")
+                logger.warning(block_reason)
+            else:
+                actions.append("emergency_truncate_recovered")
+                recovery = "none"
+    elif live_after > cfg.auto_compact_tokens and not after_recovery:
+        # Soft pressure: ask caller to compact proactively, but do not block
+        # if compaction is skipped (caller may still send).
+        recovery = "compact"
+        actions.append("soft_auto_compact")
+        logger.info(
+            "Context governor: live≈%s crossed auto-compact=%s — requesting compaction",
+            f"{live_after:,}",
+            f"{cfg.auto_compact_tokens:,}",
+        )
+    elif live_after > cfg.soft_warning_tokens:
+        actions.append(f"soft_warning live≈{live_after:,}")
 
     return GovernorResult(
         messages=msgs,
         tools=tools_list,
         memory_prefetch=prefetch,
         tokens_before=tokens_before,
-        tokens_after=tokens_after,
+        tokens_after=live_after,
+        tokens_messages=msg_tok,
+        tokens_tools=tools_tok,
+        tokens_total=total_after,
         actions=actions,
+        recovery=recovery,
         blocked=blocked,
         block_reason=block_reason,
         config=cfg,

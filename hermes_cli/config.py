@@ -1368,9 +1368,15 @@ DEFAULT_CONFIG = {
     # Absolute live-token governor — independent of model context_length.
     # Oversized requests are pruned/summarized before the provider call; if
     # still over max_live_tokens the request is blocked (never silently sent).
+    # Live-transcript governor (recover-first). max_live_tokens budgets
+    # messages + memory prefetch — NOT tool schemas. Soft tiers drive
+    # automatic compaction; hard-fail only after recovery is exhausted.
     "context_governor": {
         "enabled": True,
         "max_live_tokens": 28_000,
+        "target_tokens": 24_000,
+        "soft_warning_tokens": 26_000,
+        "auto_compact_tokens": 27_000,
         "max_retrieval_tokens": 5_000,
         "max_tool_result_tokens": 6_000,
         "max_memory_prefetch_tokens": 1_500,
