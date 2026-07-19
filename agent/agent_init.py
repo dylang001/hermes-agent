@@ -1633,8 +1633,8 @@ def init_agent(
     except Exception:
         pass
     compression_enabled = str(_compression_cfg.get("enabled", True)).lower() in {"true", "1", "yes"}
-    compression_target_ratio = float(_compression_cfg.get("target_ratio", 0.20))
-    compression_protect_last = int(_compression_cfg.get("protect_last_n", 20))
+    compression_target_ratio = float(_compression_cfg.get("target_ratio", 0.25))
+    compression_protect_last = int(_compression_cfg.get("protect_last_n", 24))
     # protect_first_n is the number of non-system messages to protect at
     # the head, in addition to the system prompt (which is always
     # implicitly protected by the compressor).  Floor at 0 — a value of
@@ -1920,6 +1920,77 @@ def init_agent(
     agent.compression_enabled = compression_enabled
     agent.compression_in_place = compression_in_place
     agent.codex_app_server_auto_compaction = codex_app_server_auto_compaction
+
+    # Context Policy P0 — adaptive %-of-window governor + profile.
+    # Resolves after the compressor so we know the model window. Does not
+    # touch Execution Coordinator / prompt-cache capability layers.
+    try:
+        from agent.context_governor import load_resolved_governor_config
+
+        _ctx_for_gov = int(
+            getattr(agent.context_compressor, "context_length", 0) or 0
+        )
+        _plat = (getattr(agent, "platform", None) or "") or ""
+        _is_sub = bool(getattr(agent, "_parent_session_id", None))
+        _is_cron = _plat.lower() == "cron"
+        _gov_cfg = load_resolved_governor_config(
+            context_length=_ctx_for_gov,
+            platform=_plat,
+            is_subagent=_is_sub,
+            is_cron=_is_cron,
+        )
+        agent._context_governor_config = _gov_cfg
+        # Align compressor trigger / tail protect with profile when adaptive.
+        if (
+            _gov_cfg.budget_mode == "adaptive"
+            and _gov_cfg.compression_threshold is not None
+            and hasattr(agent.context_compressor, "threshold_percent")
+        ):
+            _prof_thresh = float(_gov_cfg.compression_threshold)
+            _eff = agent.context_compressor._effective_threshold_percent(
+                agent.context_compressor.context_length, _prof_thresh
+            )
+            agent.context_compressor._configured_threshold_percent = _prof_thresh
+            agent.context_compressor.threshold_percent = _eff
+            agent.context_compressor.threshold_tokens = (
+                agent.context_compressor._compute_threshold_tokens(
+                    agent.context_compressor.context_length,
+                    _eff,
+                    getattr(agent.context_compressor, "max_tokens", None),
+                )
+            )
+            if _gov_cfg.protect_last_n is not None:
+                agent.context_compressor.protect_last_n = int(
+                    _gov_cfg.protect_last_n
+                )
+            # Tail token budget tracks threshold * target_ratio.
+            _tr = float(
+                getattr(agent.context_compressor, "summary_target_ratio", 0.25)
+                or 0.25
+            )
+            agent.context_compressor.tail_token_budget = int(
+                agent.context_compressor.threshold_tokens * _tr
+            )
+        _ra().logger.info(
+            "Context policy: profile=%s mode=%s window=%s "
+            "stages info/opt/compact/emergency=%s/%s/%s/%s "
+            "compression_threshold=%.0f%%",
+            _gov_cfg.profile,
+            _gov_cfg.budget_mode,
+            f"{_ctx_for_gov:,}" if _ctx_for_gov else "n/a",
+            f"{_gov_cfg.informational_tokens:,}",
+            f"{_gov_cfg.optimization_tokens:,}",
+            f"{_gov_cfg.compaction_tokens:,}",
+            f"{_gov_cfg.emergency_tokens:,}",
+            100
+            * float(
+                getattr(agent.context_compressor, "threshold_percent", 0.7) or 0.7
+            ),
+        )
+    except Exception as _gov_init_exc:
+        _ra().logger.debug(
+            "Context governor resolve failed open: %s", _gov_init_exc
+        )
 
     # Reject models whose context window is below the minimum required
     # for reliable tool-calling workflows (64K tokens).

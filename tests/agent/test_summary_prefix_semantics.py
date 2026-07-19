@@ -40,7 +40,19 @@ def test_latest_message_wins_on_conflict():
     assert HISTORICAL_PENDING_ASKS_HEADING.lower() in lower
     assert HISTORICAL_REMAINING_WORK_HEADING.lower() in lower
     # Must have an explicit conflict-resolution rule.
-    assert "wins" in lower or "supersede" in lower or "discard" in lower or "priority" in lower
+    assert "wins" in lower or "supersede" in lower or "conflict" in lower
+    # Must NOT blanket-discard working memory on every compaction.
+    assert "discard stale items" not in lower
+
+
+def test_preserves_working_memory_across_compaction():
+    """Ephemeral engineering state must survive the handoff framing."""
+    lower = SUMMARY_PREFIX.lower()
+    assert "preserve" in lower
+    assert "key decisions" in lower
+    assert "relevant files" in lower
+    assert "continuity" in lower
+    assert "working-memory" in lower or "working memory" in lower
 
 
 def test_handoff_sections_are_framed_as_historical():
@@ -71,8 +83,8 @@ def test_reverse_signals_called_out():
 def test_summary_marked_reference_only():
     """The REFERENCE ONLY framing must remain — it's the entire point."""
     assert "REFERENCE ONLY" in SUMMARY_PREFIX
-    assert "background reference" in SUMMARY_PREFIX
-    assert "NOT as active instructions" in SUMMARY_PREFIX
+    assert "working-memory background" in SUMMARY_PREFIX
+    assert "NOT as a fresh set of" in SUMMARY_PREFIX
 
 
 def test_memory_authority_preserved():
@@ -84,11 +96,13 @@ def test_memory_authority_preserved():
 
 def test_no_background_consistency_carveout():
     """The "consistent → use as background" carveout licensed stale-task
-    resumption on topic overlap (#41607, #38364, #42812). It must stay gone,
-    and the prefix must explicitly neutralize topic overlap."""
+    resumption on topic overlap (#41607, #38364, #42812). It must stay gone.
+    Topic overlap alone must not force discard OR forced resume — continuity
+    without treating overlap as an automatic resume trigger."""
     lower = SUMMARY_PREFIX.lower()
     assert "you may use the summary as background" not in lower
     assert "topic overlap" in lower
+    assert "not conflict" in lower or "alone is not" in lower
 
 
 def test_replaced_prefixes_are_frozen_for_renormalization():

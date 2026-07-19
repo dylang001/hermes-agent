@@ -1368,11 +1368,21 @@ DEFAULT_CONFIG = {
     # Absolute live-token governor — independent of model context_length.
     # Oversized requests are pruned/summarized before the provider call; if
     # still over max_live_tokens the request is blocked (never silently sent).
-    # Live-transcript governor (recover-first). max_live_tokens budgets
-    # messages + memory prefetch — NOT tool schemas. Soft tiers drive
-    # automatic compaction; hard-fail only after recovery is exhausted.
+    # Live-transcript governor (recover-first). Default budget_mode is
+    # adaptive: stage thresholds are % of the active model context window
+    # (see docs/context-policy.md). Absolute token knobs apply only when
+    # budget_mode: absolute. Live budget = messages + prefetch — NOT schemas.
     "context_governor": {
         "enabled": True,
+        "budget_mode": "adaptive",
+        "profile": "auto",  # auto | interactive | autonomous | batch
+        # Optional top-level ratio overrides (else profile defaults).
+        # informational / optimization / compaction / emergency
+        "informational_ratio": None,
+        "optimization_ratio": None,
+        "compaction_ratio": None,
+        "emergency_ratio": None,
+        # Legacy absolute knobs — used only when budget_mode: absolute
         "max_live_tokens": 28_000,
         "target_tokens": 24_000,
         "soft_warning_tokens": 26_000,
@@ -1380,6 +1390,32 @@ DEFAULT_CONFIG = {
         "max_retrieval_tokens": 5_000,
         "max_tool_result_tokens": 6_000,
         "max_memory_prefetch_tokens": 1_500,
+        "profiles": {
+            "interactive": {
+                "informational_ratio": 0.35,
+                "optimization_ratio": 0.55,
+                "compaction_ratio": 0.75,
+                "emergency_ratio": 0.90,
+                "compression_threshold": 0.70,
+                "protect_last_n": 24,
+            },
+            "autonomous": {
+                "informational_ratio": 0.25,
+                "optimization_ratio": 0.40,
+                "compaction_ratio": 0.60,
+                "emergency_ratio": 0.85,
+                "compression_threshold": 0.55,
+                "protect_last_n": 12,
+            },
+            "batch": {
+                "informational_ratio": 0.15,
+                "optimization_ratio": 0.30,
+                "compaction_ratio": 0.50,
+                "emergency_ratio": 0.75,
+                "compression_threshold": 0.45,
+                "protect_last_n": 8,
+            },
+        },
     },
 
     # Observatory Phase 1 — process-local Prometheus text metrics.
@@ -1456,15 +1492,11 @@ DEFAULT_CONFIG = {
 
     "compression": {
         "enabled": True,
-        "threshold": 0.50,            # compress when context usage exceeds this ratio.
-                                      # Models with context windows below 512K are
-                                      # floored at 0.75 (raise-only) so compaction
-                                      # doesn't fire with half the window still free;
-                                      # set this above 0.75 to override the floor.
-        "target_ratio": 0.20,         # fraction of threshold to preserve as recent tail
-        "protect_last_n": 8,          # minimum recent messages to keep uncompressed
-                                      # (Phase 1: lowered from 20 so absolute live
-                                      # budgets can actually reclaim mid-session)
+        # Default threshold; interactive profile may raise via context_governor.
+        # Models with context windows below 512K are floored at 0.75 (raise-only).
+        "threshold": 0.70,
+        "target_ratio": 0.25,         # fraction of threshold to preserve as recent tail
+        "protect_last_n": 24,         # continuity-first default (batch profile may lower)
         "hygiene_hard_message_limit": 5000,  # gateway session-hygiene force-compress threshold by message count
         "protect_first_n": 3,         # non-system head messages always preserved
                                       # verbatim, in ADDITION to the system prompt

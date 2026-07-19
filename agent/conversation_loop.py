@@ -837,13 +837,31 @@ def run_conversation(
                     # Absolute memory-prefetch budget (Phase 1 governor).
                     try:
                         from agent.context_governor import (
-                            ContextGovernorConfig,
                             cap_memory_prefetch,
+                            load_resolved_governor_config,
                         )
 
                         _gov_cfg = getattr(agent, "_context_governor_config", None)
                         if _gov_cfg is None:
-                            _gov_cfg = ContextGovernorConfig.load()
+                            _ctx_len = int(
+                                getattr(
+                                    getattr(agent, "context_compressor", None),
+                                    "context_length",
+                                    0,
+                                )
+                                or 0
+                            )
+                            _gov_cfg = load_resolved_governor_config(
+                                context_length=_ctx_len,
+                                platform=getattr(agent, "platform", "") or "",
+                                is_subagent=bool(
+                                    getattr(agent, "_parent_session_id", None)
+                                ),
+                                is_cron=(
+                                    (getattr(agent, "platform", "") or "").lower()
+                                    == "cron"
+                                ),
+                            )
                             agent._context_governor_config = _gov_cfg
                         if _gov_cfg.enabled:
                             _actions: list = []
@@ -1143,11 +1161,27 @@ def run_conversation(
         # truncate → only then hard-fail. Tool-schema overhead alone must
         # never produce a user-visible block (that made /compress a no-op).
         try:
-            from agent.context_governor import ContextGovernorConfig, govern_request
+            from agent.context_governor import (
+                govern_request,
+                load_resolved_governor_config,
+            )
 
             _gov_cfg = getattr(agent, "_context_governor_config", None)
             if _gov_cfg is None:
-                _gov_cfg = ContextGovernorConfig.load()
+                _ctx_len = int(
+                    getattr(
+                        getattr(agent, "context_compressor", None),
+                        "context_length",
+                        0,
+                    )
+                    or 0
+                )
+                _gov_cfg = load_resolved_governor_config(
+                    context_length=_ctx_len,
+                    platform=getattr(agent, "platform", "") or "",
+                    is_subagent=bool(getattr(agent, "_parent_session_id", None)),
+                    is_cron=(getattr(agent, "platform", "") or "").lower() == "cron",
+                )
                 agent._context_governor_config = _gov_cfg
 
             _gov_attempts = int(getattr(agent, "_context_governor_recovery_attempts", 0) or 0)

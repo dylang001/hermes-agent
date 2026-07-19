@@ -1,28 +1,24 @@
-"""Live-context governor — recover first, hard-block last.
+"""Adaptive live-context governor — continuity first, recover before fail.
 
-Phase 1 introduced an absolute live-token budget. The first cut treated the
-governor as a gatekeeper and counted tool schemas toward the same budget as
-the transcript. That created an unreachable UX:
+Context Policy P0 (see ``docs/context-policy.md``):
 
-* Governor: "28,015 > 28,000 — blocked"
-* /compress: "4 messages, ~1,476 tokens — nothing to compress"
+* Budget the **live transcript** (messages + memory prefetch), never tool
+  schemas alone (preserves the Telegram Hello recover-first fix).
+* Default budgets are **percentages of the active model context window**,
+  not fixed 20k/28k absolute caps.
+* Four stages: normal → background optimisation → intelligent compaction →
+  emergency recovery.
+* Profiles (interactive / autonomous / batch) select stage ratios so a
+  day-long coding chat is not constrained like a short-lived worker.
 
-Tool schemas are not compressible by /compress. This module now:
-
-1. Budgets the **live transcript** (messages + memory prefetch), not tool schemas
-2. Prunes/summarizes tool results under pressure
-3. Signals **recovery** (auto-compact) instead of blocking ordinary turns
-4. Hard-blocks only after emergency truncation still cannot fit the transcript
-
-Tool/system overhead is reported for diagnostics but never alone causes a
-user-visible hard stop.
+Runtime architecture remains frozen: this module only changes policy.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Sequence
+from dataclasses import dataclass, field, replace
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 from agent.model_metadata import (
     estimate_messages_tokens_rough,
@@ -33,6 +29,11 @@ from agent.model_metadata import (
 logger = logging.getLogger(__name__)
 
 RecoveryAction = Literal["none", "compact", "fail"]
+BudgetMode = Literal["adaptive", "absolute"]
+ContextProfile = Literal["interactive", "autonomous", "batch", "auto"]
+PolicyStage = Literal[
+    "normal", "optimization", "compaction", "emergency", "disabled"
+]
 
 # Tool names whose results count toward the retrieval budget.
 _RETRIEVAL_TOOLS = frozenset(
@@ -51,44 +52,200 @@ _RETRIEVAL_TOOLS = frozenset(
 
 _TOOL_SUMMARY_MAX_CHARS = 240
 
+# Messaging / interactive surfaces — maximise continuity under profile=auto.
+_INTERACTIVE_PLATFORMS = frozenset(
+    {
+        "cli",
+        "tui",
+        "desktop",
+        "telegram",
+        "discord",
+        "slack",
+        "whatsapp",
+        "signal",
+        "matrix",
+        "mattermost",
+        "email",
+        "sms",
+        "homeassistant",
+        "bluebubbles",
+        "feishu",
+        "dingtalk",
+        "wecom",
+        "weixin",
+        "qqbot",
+        "yuanbao",
+        "webhook",
+        "api_server",
+        "",  # unset → treat as interactive (local CLI default)
+    }
+)
+
+_AUTONOMOUS_PLATFORMS = frozenset({"cron", "kanban", "curator"})
+
+# Profile stage ratios — fractions of model context_length (live transcript).
+_PROFILE_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "interactive": {
+        "informational_ratio": 0.35,
+        "optimization_ratio": 0.55,
+        "compaction_ratio": 0.75,
+        "emergency_ratio": 0.90,
+        # Tool budgets as fractions of window (floored/ceiled at resolve).
+        "max_tool_result_ratio": 0.08,
+        "max_retrieval_ratio": 0.06,
+        "max_memory_prefetch_ratio": 0.004,
+        "compression_threshold": 0.70,
+        "protect_last_n": 24,
+    },
+    "autonomous": {
+        "informational_ratio": 0.25,
+        "optimization_ratio": 0.40,
+        "compaction_ratio": 0.60,
+        "emergency_ratio": 0.85,
+        "max_tool_result_ratio": 0.05,
+        "max_retrieval_ratio": 0.04,
+        "max_memory_prefetch_ratio": 0.003,
+        "compression_threshold": 0.55,
+        "protect_last_n": 12,
+    },
+    "batch": {
+        "informational_ratio": 0.15,
+        "optimization_ratio": 0.30,
+        "compaction_ratio": 0.50,
+        "emergency_ratio": 0.75,
+        "max_tool_result_ratio": 0.04,
+        "max_retrieval_ratio": 0.03,
+        "max_memory_prefetch_ratio": 0.002,
+        "compression_threshold": 0.45,
+        "protect_last_n": 8,
+    },
+}
+
+# Absolute-mode legacy defaults (budget_mode: absolute only).
+_ABSOLUTE_DEFAULTS = {
+    "max_live_tokens": 28_000,
+    "target_tokens": 24_000,
+    "soft_warning_tokens": 26_000,
+    "auto_compact_tokens": 27_000,
+    "max_retrieval_tokens": 5_000,
+    "max_tool_result_tokens": 6_000,
+    "max_memory_prefetch_tokens": 1_500,
+}
+
+# Floors/ceilings so tiny windows stay usable and huge windows don't
+# allow multi-hundred-k tool dumps in one turn.
+_TOOL_RESULT_FLOOR = 2_000
+_TOOL_RESULT_CEILING = 80_000
+_RETRIEVAL_FLOOR = 1_500
+_RETRIEVAL_CEILING = 60_000
+_PREFETCH_FLOOR = 400
+_PREFETCH_CEILING = 8_000
+_MIN_CONTEXT_FOR_ADAPTIVE = 8_000
+
 
 @dataclass
 class ContextGovernorConfig:
-    """Budgets for a single provider request's live transcript."""
+    """Resolved budgets for a single provider request's live transcript."""
 
     enabled: bool = True
-    # Compressible live payload budget (messages + prefetch). NOT tool schemas.
+    budget_mode: BudgetMode = "adaptive"
+    profile: str = "interactive"
+    context_length: int = 0
+    # Stage tokens (derived from ratios or absolute mode).
+    informational_tokens: int = 0
+    optimization_tokens: int = 0
+    compaction_tokens: int = 0
+    emergency_tokens: int = 0
+    # Back-compat aliases used throughout call sites / tests.
     max_live_tokens: int = 28_000
-    # Soft tiers — orchestrate recovery before the hard ceiling.
     target_tokens: int = 24_000
     soft_warning_tokens: int = 26_000
     auto_compact_tokens: int = 27_000
     max_retrieval_tokens: int = 5_000
     max_tool_result_tokens: int = 6_000
     max_memory_prefetch_tokens: int = 1_500
+    # Profile hints for the % compressor (applied at agent init).
+    compression_threshold: Optional[float] = None
+    protect_last_n: Optional[int] = None
+    # Raw ratios retained for diagnostics / benchmarks.
+    informational_ratio: float = 0.35
+    optimization_ratio: float = 0.55
+    compaction_ratio: float = 0.75
+    emergency_ratio: float = 0.90
+    resolved: bool = False
 
     @classmethod
     def from_config_dict(cls, raw: Optional[Dict[str, Any]]) -> "ContextGovernorConfig":
+        """Build an unresolved config from yaml (call ``resolve`` next)."""
         raw = raw or {}
         if not isinstance(raw, dict):
             return cls()
-        max_live = int(raw.get("max_live_tokens", 28_000) or 28_000)
+        mode = str(raw.get("budget_mode") or "adaptive").strip().lower()
+        if mode not in ("adaptive", "absolute"):
+            mode = "adaptive"
+        profile = str(raw.get("profile") or "auto").strip().lower() or "auto"
         return cls(
             enabled=bool(raw.get("enabled", True)),
-            max_live_tokens=max_live,
-            target_tokens=int(raw.get("target_tokens", 24_000) or 24_000),
+            budget_mode=mode,  # type: ignore[arg-type]
+            profile=profile,
+            # Absolute knobs retained for absolute mode / test overrides.
+            max_live_tokens=int(
+                raw.get("max_live_tokens", _ABSOLUTE_DEFAULTS["max_live_tokens"])
+                or _ABSOLUTE_DEFAULTS["max_live_tokens"]
+            ),
+            target_tokens=int(
+                raw.get("target_tokens", _ABSOLUTE_DEFAULTS["target_tokens"])
+                or _ABSOLUTE_DEFAULTS["target_tokens"]
+            ),
             soft_warning_tokens=int(
-                raw.get("soft_warning_tokens", 26_000) or 26_000
+                raw.get(
+                    "soft_warning_tokens", _ABSOLUTE_DEFAULTS["soft_warning_tokens"]
+                )
+                or _ABSOLUTE_DEFAULTS["soft_warning_tokens"]
             ),
             auto_compact_tokens=int(
-                raw.get("auto_compact_tokens", min(27_000, max_live - 1_000))
-                or min(27_000, max_live - 1_000)
+                raw.get(
+                    "auto_compact_tokens", _ABSOLUTE_DEFAULTS["auto_compact_tokens"]
+                )
+                or _ABSOLUTE_DEFAULTS["auto_compact_tokens"]
             ),
-            max_retrieval_tokens=int(raw.get("max_retrieval_tokens", 5_000) or 5_000),
-            max_tool_result_tokens=int(raw.get("max_tool_result_tokens", 6_000) or 6_000),
+            max_retrieval_tokens=int(
+                raw.get(
+                    "max_retrieval_tokens", _ABSOLUTE_DEFAULTS["max_retrieval_tokens"]
+                )
+                or _ABSOLUTE_DEFAULTS["max_retrieval_tokens"]
+            ),
+            max_tool_result_tokens=int(
+                raw.get(
+                    "max_tool_result_tokens",
+                    _ABSOLUTE_DEFAULTS["max_tool_result_tokens"],
+                )
+                or _ABSOLUTE_DEFAULTS["max_tool_result_tokens"]
+            ),
             max_memory_prefetch_tokens=int(
-                raw.get("max_memory_prefetch_tokens", 1_500) or 1_500
+                raw.get(
+                    "max_memory_prefetch_tokens",
+                    _ABSOLUTE_DEFAULTS["max_memory_prefetch_tokens"],
+                )
+                or _ABSOLUTE_DEFAULTS["max_memory_prefetch_tokens"]
             ),
+            informational_ratio=float(
+                raw.get("informational_ratio")
+                or _PROFILE_DEFAULTS["interactive"]["informational_ratio"]
+            ),
+            optimization_ratio=float(
+                raw.get("optimization_ratio")
+                or _PROFILE_DEFAULTS["interactive"]["optimization_ratio"]
+            ),
+            compaction_ratio=float(
+                raw.get("compaction_ratio")
+                or _PROFILE_DEFAULTS["interactive"]["compaction_ratio"]
+            ),
+            emergency_ratio=float(
+                raw.get("emergency_ratio")
+                or _PROFILE_DEFAULTS["interactive"]["emergency_ratio"]
+            ),
+            resolved=False,
         )
 
     @classmethod
@@ -100,6 +257,190 @@ class ContextGovernorConfig:
             return cls.from_config_dict(cfg.get("context_governor"))
         except Exception:
             return cls()
+
+    def resolve(
+        self,
+        *,
+        context_length: int = 0,
+        profile: Optional[str] = None,
+        raw_config: Optional[Dict[str, Any]] = None,
+    ) -> "ContextGovernorConfig":
+        """Materialise stage token budgets from window + profile.
+
+        Safe to call multiple times (e.g. model switch). Returns a new
+        config instance; does not mutate ``self`` unless already a copy.
+        """
+        raw = raw_config if isinstance(raw_config, dict) else {}
+        profiles_raw = raw.get("profiles") if isinstance(raw.get("profiles"), dict) else {}
+
+        chosen = (profile or self.profile or "interactive").strip().lower()
+        if chosen == "auto":
+            chosen = "interactive"
+        if chosen not in _PROFILE_DEFAULTS:
+            chosen = "interactive"
+
+        base_profile = dict(_PROFILE_DEFAULTS[chosen])
+        user_profile = profiles_raw.get(chosen) if isinstance(profiles_raw.get(chosen), dict) else {}
+        base_profile.update({k: v for k, v in user_profile.items() if v is not None})
+
+        # Top-level ratio overrides beat profile defaults.
+        for key in (
+            "informational_ratio",
+            "optimization_ratio",
+            "compaction_ratio",
+            "emergency_ratio",
+            "max_tool_result_ratio",
+            "max_retrieval_ratio",
+            "max_memory_prefetch_ratio",
+            "compression_threshold",
+            "protect_last_n",
+        ):
+            if key in raw and raw[key] is not None:
+                base_profile[key] = raw[key]
+
+        info_r = float(base_profile["informational_ratio"])
+        opt_r = float(base_profile["optimization_ratio"])
+        comp_r = float(base_profile["compaction_ratio"])
+        emerg_r = float(base_profile["emergency_ratio"])
+        # Enforce monotonic stage order.
+        opt_r = max(opt_r, info_r + 0.01)
+        comp_r = max(comp_r, opt_r + 0.01)
+        emerg_r = max(emerg_r, comp_r + 0.01)
+        emerg_r = min(emerg_r, 0.98)
+
+        cfg = replace(self)
+        cfg.profile = chosen
+        cfg.informational_ratio = info_r
+        cfg.optimization_ratio = opt_r
+        cfg.compaction_ratio = comp_r
+        cfg.emergency_ratio = emerg_r
+        cfg.compression_threshold = (
+            float(base_profile["compression_threshold"])
+            if base_profile.get("compression_threshold") is not None
+            else None
+        )
+        cfg.protect_last_n = (
+            int(base_profile["protect_last_n"])
+            if base_profile.get("protect_last_n") is not None
+            else None
+        )
+
+        window = int(context_length or 0)
+        cfg.context_length = window
+
+        if cfg.budget_mode == "absolute" or window < _MIN_CONTEXT_FOR_ADAPTIVE:
+            # Absolute / tiny-window path — keep explicit token knobs.
+            cfg.max_live_tokens = int(self.max_live_tokens)
+            cfg.emergency_tokens = cfg.max_live_tokens
+            cfg.auto_compact_tokens = int(self.auto_compact_tokens)
+            cfg.compaction_tokens = cfg.auto_compact_tokens
+            cfg.soft_warning_tokens = int(self.soft_warning_tokens)
+            cfg.informational_tokens = cfg.soft_warning_tokens
+            cfg.optimization_tokens = int(
+                min(cfg.auto_compact_tokens, max(cfg.target_tokens, cfg.soft_warning_tokens))
+            )
+            cfg.target_tokens = int(self.target_tokens)
+            cfg.max_retrieval_tokens = int(self.max_retrieval_tokens)
+            cfg.max_tool_result_tokens = int(self.max_tool_result_tokens)
+            cfg.max_memory_prefetch_tokens = int(self.max_memory_prefetch_tokens)
+            cfg.resolved = True
+            return cfg
+
+        def _tok(ratio: float) -> int:
+            return max(1_000, int(window * ratio))
+
+        cfg.informational_tokens = _tok(info_r)
+        cfg.optimization_tokens = _tok(opt_r)
+        cfg.compaction_tokens = _tok(comp_r)
+        cfg.emergency_tokens = _tok(emerg_r)
+
+        # Aliases for existing call sites / metrics.
+        cfg.soft_warning_tokens = cfg.informational_tokens
+        cfg.target_tokens = cfg.optimization_tokens
+        cfg.auto_compact_tokens = cfg.compaction_tokens
+        cfg.max_live_tokens = cfg.emergency_tokens
+
+        tool_r = float(base_profile.get("max_tool_result_ratio", 0.08))
+        ret_r = float(base_profile.get("max_retrieval_ratio", 0.06))
+        pref_r = float(base_profile.get("max_memory_prefetch_ratio", 0.004))
+        cfg.max_tool_result_tokens = int(
+            min(_TOOL_RESULT_CEILING, max(_TOOL_RESULT_FLOOR, window * tool_r))
+        )
+        cfg.max_retrieval_tokens = int(
+            min(_RETRIEVAL_CEILING, max(_RETRIEVAL_FLOOR, window * ret_r))
+        )
+        cfg.max_memory_prefetch_tokens = int(
+            min(_PREFETCH_CEILING, max(_PREFETCH_FLOOR, window * pref_r))
+        )
+        cfg.resolved = True
+        return cfg
+
+
+def resolve_context_profile(
+    *,
+    configured: str = "auto",
+    platform: str = "",
+    is_subagent: bool = False,
+    is_cron: bool = False,
+) -> str:
+    """Map runtime role → interactive | autonomous | batch."""
+    conf = (configured or "auto").strip().lower()
+    if conf in ("interactive", "autonomous", "batch"):
+        return conf
+    if is_subagent:
+        return "batch"
+    plat = (platform or "").strip().lower()
+    if is_cron or plat in _AUTONOMOUS_PLATFORMS:
+        return "autonomous"
+    if plat in _INTERACTIVE_PLATFORMS:
+        return "interactive"
+    # Unknown platform: prefer continuity (personal OS default).
+    return "interactive"
+
+
+def load_resolved_governor_config(
+    *,
+    context_length: int,
+    platform: str = "",
+    is_subagent: bool = False,
+    is_cron: bool = False,
+) -> ContextGovernorConfig:
+    """Load yaml + resolve adaptive budgets for this agent."""
+    raw: Dict[str, Any] = {}
+    try:
+        from hermes_cli.config import load_config
+
+        cfg = load_config() or {}
+        raw = cfg.get("context_governor") or {}
+        if not isinstance(raw, dict):
+            raw = {}
+    except Exception:
+        raw = {}
+    base = ContextGovernorConfig.from_config_dict(raw)
+    profile = resolve_context_profile(
+        configured=str(raw.get("profile") or base.profile or "auto"),
+        platform=platform,
+        is_subagent=is_subagent,
+        is_cron=is_cron,
+    )
+    return base.resolve(
+        context_length=context_length, profile=profile, raw_config=raw
+    )
+
+
+def _stage_for_live(live_tokens: int, cfg: ContextGovernorConfig) -> PolicyStage:
+    """Stage name for logging / metrics (informational is soft-normal)."""
+    if not cfg.enabled:
+        return "disabled"
+    if live_tokens >= cfg.max_live_tokens:
+        return "emergency"
+    if live_tokens >= cfg.auto_compact_tokens:
+        return "compaction"
+    if live_tokens >= cfg.optimization_tokens:
+        return "optimization"
+    if live_tokens >= cfg.soft_warning_tokens:
+        return "normal"  # informational soft signal only
+    return "normal"
 
 
 @dataclass
@@ -113,12 +454,10 @@ class GovernorResult:
     tokens_tools: int = 0
     tokens_total: int = 0
     actions: List[str] = field(default_factory=list)
-    # recovery: none = proceed; compact = caller should auto-compress+retry;
-    # fail = every in-governor recovery exhausted (caller may still try
-    # session continuation before surfacing an error).
     recovery: RecoveryAction = "none"
     blocked: bool = False
     block_reason: str = ""
+    stage: PolicyStage = "normal"
     config: ContextGovernorConfig = field(default_factory=ContextGovernorConfig)
 
 
@@ -261,12 +600,8 @@ def _estimate_components(
     messages: Sequence[Dict[str, Any]],
     tools: Optional[Sequence[Any]],
     memory_prefetch: str,
-) -> tuple[int, int, int, int]:
-    """Return (live_tokens, messages_tokens, tools_tokens, total_tokens).
-
-    *live_tokens* is the compressible budget: messages + memory prefetch.
-    Tool schemas are reported separately and must not alone hard-block.
-    """
+) -> Tuple[int, int, int, int]:
+    """Return (live_tokens, messages_tokens, tools_tokens, total_tokens)."""
     msgs = list(messages)
     messages_tokens = estimate_messages_tokens_rough(msgs) if msgs else 0
     prefetch_tokens = estimate_tokens_rough(memory_prefetch) if memory_prefetch else 0
@@ -274,7 +609,6 @@ def _estimate_components(
     tools_list = list(tools) if tools is not None else None
     tools_tokens = 0
     if tools_list:
-        # Reuse the shared estimator's tool bucket (total − messages − empty sys).
         total_with_tools = estimate_request_tokens_rough(msgs, tools=tools_list)
         tools_tokens = max(0, total_with_tools - messages_tokens)
     total_tokens = live_tokens + tools_tokens
@@ -287,16 +621,11 @@ def _emergency_truncate_transcript(
     max_live_tokens: int,
     actions: List[str],
 ) -> List[Dict[str, Any]]:
-    """Last-resort in-governor shrink: keep system + last user turn.
-
-    Used only after prune + caller compact recovery have already failed.
-    """
+    """Last-resort: keep system + last user turn."""
     if not messages:
         return messages
     out = [dict(m) for m in messages]
     system = [m for m in out if m.get("role") == "system"]
-    # Keep the final user message (and any trailing tool/assistant pair after
-    # the previous user would be unusual for a blocked turn — keep last user).
     last_user_idx = None
     for i in range(len(out) - 1, -1, -1):
         if out[i].get("role") == "user":
@@ -307,7 +636,6 @@ def _emergency_truncate_transcript(
     if last_user_idx is not None:
         user_msg = dict(out[last_user_idx])
         content = _msg_content(user_msg)
-        # Leave room under budget for a short system prefix.
         sys_tok = estimate_messages_tokens_rough(kept) if kept else 0
         user_budget = max(200, max_live_tokens - sys_tok - 50)
         if estimate_tokens_rough(content) > user_budget:
@@ -331,19 +659,27 @@ def govern_request(
     after_recovery: bool = False,
     allow_emergency_truncate: bool = False,
 ) -> GovernorResult:
-    """Enforce live-transcript budgets with recover-first semantics.
+    """Enforce live-transcript budgets with staged, recover-first semantics.
 
-    Parameters
-    ----------
-    after_recovery:
-        True when the caller already ran auto-compression for this pressure
-        event. Enables the fail/emergency path instead of asking for compact
-        again.
-    allow_emergency_truncate:
-        When True (and after_recovery), aggressively truncate the transcript
-        to system + last user message before declaring failure.
+    Stage 1 (normal): no tool-trace pruning, no compaction signal.
+    Stage 2 (optimisation): prune/collapse low-value tool results only.
+    Stage 3 (compaction): request intelligent auto-compact (caller).
+    Stage 4 (emergency): compact / emergency truncate / fail after recovery.
     """
     cfg = config or ContextGovernorConfig()
+    # Tests often construct absolute token knobs without resolve(); treat
+    # unresolved configs with explicit max_live_tokens as absolute budgets.
+    if not cfg.resolved and cfg.max_live_tokens > 0:
+        if cfg.emergency_tokens <= 0:
+            cfg = replace(
+                cfg,
+                emergency_tokens=cfg.max_live_tokens,
+                compaction_tokens=cfg.auto_compact_tokens or cfg.max_live_tokens,
+                optimization_tokens=cfg.target_tokens or cfg.soft_warning_tokens,
+                informational_tokens=cfg.soft_warning_tokens,
+                resolved=True,
+            )
+
     tools_list = list(tools) if tools is not None else None
     msgs = [dict(m) for m in messages]
     prefetch = memory_prefetch or ""
@@ -352,7 +688,7 @@ def govern_request(
     live_before, _, tools_tok_before, total_before = _estimate_components(
         msgs, tools_list, prefetch
     )
-    tokens_before = live_before  # live budget is the contract
+    tokens_before = live_before
 
     if not cfg.enabled:
         return GovernorResult(
@@ -367,25 +703,38 @@ def govern_request(
             actions=[],
             recovery="none",
             blocked=False,
+            stage="disabled",
             config=cfg,
         )
 
+    # Prefetch always capped (cheap, never user-visible conversation loss).
     prefetch = cap_memory_prefetch(
         prefetch, cfg.max_memory_prefetch_tokens, actions
     )
-    msgs = _prune_tool_results(
-        msgs,
-        max_tool_result_tokens=cfg.max_tool_result_tokens,
-        max_retrieval_tokens=cfg.max_retrieval_tokens,
-        actions=actions,
-    )
+
+    live_probe, _, _, _ = _estimate_components(msgs, tools_list, prefetch)
+    stage = _stage_for_live(live_probe, cfg)
+
+    # Stage 1 — Normal: leave the conversation alone.
+    # Stage 2+ — Background optimisation: prune tool traces only.
+    if live_probe >= cfg.optimization_tokens:
+        msgs = _prune_tool_results(
+            msgs,
+            max_tool_result_tokens=cfg.max_tool_result_tokens,
+            max_retrieval_tokens=cfg.max_retrieval_tokens,
+            actions=actions,
+        )
+        if actions:
+            actions.append("stage_optimization_prune")
 
     live_after, msg_tok, tools_tok, total_after = _estimate_components(
         msgs, tools_list, prefetch
     )
+    stage = _stage_for_live(live_after, cfg)
 
-    # Pressure pass: summarize older tool results more aggressively.
-    if live_after > cfg.auto_compact_tokens:
+    # Approaching compaction: force-summarize older tool results (still not
+    # summarising user/assistant dialogue — that is the compressor's job).
+    if live_after >= cfg.auto_compact_tokens:
         tool_idxs = [i for i, m in enumerate(msgs) if m.get("role") == "tool"]
         for i in tool_idxs[:-1]:
             content = _msg_content(msgs[i])
@@ -396,34 +745,44 @@ def govern_request(
         live_after, msg_tok, tools_tok, total_after = _estimate_components(
             msgs, tools_list, prefetch
         )
+        stage = _stage_for_live(live_after, cfg)
 
     if tools_tok and total_after > cfg.max_live_tokens and live_after <= cfg.max_live_tokens:
-        # Fixed tool/schema overhead dominates the *total* request size, but
-        # the live transcript fits. Never hard-block for this — /compress
-        # cannot shrink tool schemas.
         actions.append(
             f"tools_overhead_outside_live_budget tools≈{tools_tok:,} "
             f"live≈{live_after:,} total≈{total_after:,}"
         )
         logger.info(
             "Context governor: tool schemas ≈%s tokens sit outside the live "
-            "transcript budget (live≈%s / max=%s); allowing request",
+            "transcript budget (live≈%s / emergency=%s profile=%s); allowing",
             f"{tools_tok:,}",
             f"{live_after:,}",
             f"{cfg.max_live_tokens:,}",
+            cfg.profile,
         )
 
     recovery: RecoveryAction = "none"
     blocked = False
     block_reason = ""
 
+    if live_after > cfg.soft_warning_tokens and live_after < cfg.optimization_tokens:
+        actions.append(
+            f"informational live≈{live_after:,} "
+            f"({cfg.informational_ratio:.0%} of window)"
+            if cfg.context_length
+            else f"informational live≈{live_after:,}"
+        )
+
     if live_after > cfg.max_live_tokens:
+        stage = "emergency"
         if not after_recovery:
             recovery = "compact"
             actions.append("recovery_compact_needed")
             logger.info(
-                "Context governor: live transcript ≈%s > max %s — requesting "
-                "auto-compaction (tools≈%s not counted against live budget)",
+                "Context governor [%s/%s]: live≈%s > emergency %s — requesting "
+                "compaction (tools≈%s excluded from live budget)",
+                cfg.profile,
+                cfg.budget_mode,
                 f"{live_after:,}",
                 f"{cfg.max_live_tokens:,}",
                 f"{tools_tok:,}",
@@ -441,26 +800,33 @@ def govern_request(
                 blocked = True
                 block_reason = (
                     f"Live transcript ~{live_after:,} tokens still exceeds "
-                    f"governor budget of {cfg.max_live_tokens:,} after automatic "
-                    f"recovery. Start a fresh session with /new, or continue in a "
-                    f"new working context."
+                    f"governor emergency budget of {cfg.max_live_tokens:,} "
+                    f"(profile={cfg.profile}, window={cfg.context_length or 'n/a'}) "
+                    f"after automatic recovery. Start a fresh session with /new, "
+                    f"or continue in a new working context."
                 )
                 actions.append("blocked_after_recovery")
                 logger.warning(block_reason)
             else:
                 actions.append("emergency_truncate_recovered")
                 recovery = "none"
-    elif live_after > cfg.auto_compact_tokens and not after_recovery:
-        # Soft pressure: ask caller to compact proactively, but do not block
-        # if compaction is skipped (caller may still send).
+                stage = _stage_for_live(live_after, cfg)
+    elif live_after >= cfg.auto_compact_tokens and not after_recovery:
+        stage = "compaction"
         recovery = "compact"
         actions.append("soft_auto_compact")
         logger.info(
-            "Context governor: live≈%s crossed auto-compact=%s — requesting compaction",
+            "Context governor [%s]: live≈%s crossed compaction=%s — "
+            "requesting intelligent compaction",
+            cfg.profile,
             f"{live_after:,}",
             f"{cfg.auto_compact_tokens:,}",
         )
-    elif live_after > cfg.soft_warning_tokens:
+    elif live_after >= cfg.optimization_tokens:
+        stage = "optimization"
+        if not any("stage_optimization" in a for a in actions):
+            actions.append(f"stage_optimization live≈{live_after:,}")
+    elif live_after >= cfg.soft_warning_tokens:
         actions.append(f"soft_warning live≈{live_after:,}")
 
     return GovernorResult(
@@ -476,5 +842,6 @@ def govern_request(
         recovery=recovery,
         blocked=blocked,
         block_reason=block_reason,
+        stage=stage,
         config=cfg,
     )

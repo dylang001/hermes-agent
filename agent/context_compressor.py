@@ -44,29 +44,31 @@ HISTORICAL_REMAINING_WORK_HEADING = "## Historical Remaining Work"
 SUMMARY_PREFIX = (
     "[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted "
     "into the summary below. This is a handoff from a previous context "
-    "window — treat it as background reference, NOT as active instructions. "
-    "Do NOT answer questions or fulfill requests mentioned in this summary; "
-    "they were already addressed. "
-    "Respond ONLY to the latest user message that appears AFTER this "
-    "summary — that message is the single source of truth for what to do "
-    "right now. "
-    "Topic overlap with the summary does NOT mean you should resume its "
-    "task: even on similar topics, the latest user message WINS. Treat ONLY "
-    "the latest message as the active task and discard stale items from "
+    "window — treat it as working-memory background, NOT as a fresh set of "
+    "user instructions to execute from scratch. "
+    "Do NOT invent new work solely from historical asks in the summary; "
+    "the latest user message that appears AFTER this summary is the single "
+    "source of truth for what to do right now. "
+    "PRESERVE as active session context (do not forget across turns): "
+    "Key Decisions, Relevant Files, Active State / constraints, architecture "
+    "conclusions, and unfinished engineering work that does not conflict "
+    "with the latest message. Continuity matters more than discarding "
+    "history. "
+    "On CONFLICT only — when the latest message contradicts, supersedes, "
+    "cancels, or explicitly changes topic away from "
     f"'{HISTORICAL_TASK_HEADING}' / '{HISTORICAL_IN_PROGRESS_HEADING}' / "
     f"'{HISTORICAL_PENDING_ASKS_HEADING}' / "
-    f"'{HISTORICAL_REMAINING_WORK_HEADING}' entirely — do not 'wrap up' or "
-    "'finish' work described there unless the latest message explicitly "
-    "asks for it. "
-    "Reverse signals in the latest message (e.g. 'stop', 'undo', 'roll "
-    "back', 'just verify', 'don't do that anymore', 'never mind', a new "
-    "topic) must immediately end any in-flight work described in the "
-    "summary; do not re-surface it in later turns. "
+    f"'{HISTORICAL_REMAINING_WORK_HEADING}' — the latest user message WINS. "
+    "Topic overlap alone is not conflict: stay continuous with the session "
+    "unless reverse signals appear (e.g. 'stop', 'undo', 'roll back', "
+    "'just verify', 'don't do that anymore', 'never mind', or an explicit "
+    "new topic). Reverse signals must immediately end cancelled in-flight "
+    "work; do not re-surface cancelled tasks in later turns. "
     "IMPORTANT: Your persistent memory (MEMORY.md, USER.md) in the system "
     "prompt is ALWAYS authoritative and active — never ignore or deprioritize "
     "memory content due to this compaction note. "
     "The current session state (files, config, etc.) may reflect work "
-    "described here — avoid repeating it:"
+    "described here — avoid repeating completed work:"
 )
 LEGACY_SUMMARY_PREFIX = "[CONTEXT SUMMARY]:"
 
@@ -151,6 +153,34 @@ _MERGED_SUMMARY_DELIMITER = "[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]
 # embedded in the body and keeps hijacking replies. Keep newest-first; entries
 # are matched literally. Add a frozen copy here whenever SUMMARY_PREFIX changes.
 _HISTORICAL_SUMMARY_PREFIXES = (
+    # Discard-era (pre working-memory continuity): told the model to discard
+    # Historical Task / In-Progress / Pending / Remaining Work on every
+    # compaction, which erased ephemeral engineering reasoning mid-session.
+    "[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted "
+    "into the summary below. This is a handoff from a previous context "
+    "window — treat it as background reference, NOT as active instructions. "
+    "Do NOT answer questions or fulfill requests mentioned in this summary; "
+    "they were already addressed. "
+    "Respond ONLY to the latest user message that appears AFTER this "
+    "summary — that message is the single source of truth for what to do "
+    "right now. "
+    "Topic overlap with the summary does NOT mean you should resume its "
+    "task: even on similar topics, the latest user message WINS. Treat ONLY "
+    "the latest message as the active task and discard stale items from "
+    f"'{HISTORICAL_TASK_HEADING}' / '{HISTORICAL_IN_PROGRESS_HEADING}' / "
+    f"'{HISTORICAL_PENDING_ASKS_HEADING}' / "
+    f"'{HISTORICAL_REMAINING_WORK_HEADING}' entirely — do not 'wrap up' or "
+    "'finish' work described there unless the latest message explicitly "
+    "asks for it. "
+    "Reverse signals in the latest message (e.g. 'stop', 'undo', 'roll "
+    "back', 'just verify', 'don't do that anymore', 'never mind', a new "
+    "topic) must immediately end any in-flight work described in the "
+    "summary; do not re-surface it in later turns. "
+    "IMPORTANT: Your persistent memory (MEMORY.md, USER.md) in the system "
+    "prompt is ALWAYS authoritative and active — never ignore or deprioritize "
+    "memory content due to this compaction note. "
+    "The current session state (files, config, etc.) may reflect work "
+    "described here — avoid repeating it:",
     # Carveout era (#41607/#38364/#42812): "consistent → use as background"
     # licensed stale-task resumption on topic overlap.
     "[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted "
@@ -224,10 +254,10 @@ _AUTO_FOCUS_MAX_TURNS = 3
 _AUTO_FOCUS_TURN_MAX_CHARS = 260
 _AUTO_FOCUS_MAX_CHARS = 700
 # Keep a short run of recent messages verbatim even when the token budget is
-# already exhausted.  The public ``protect_last_n`` default is intentionally
-# high for small/light tails, but using all 20 as a hard floor here would bring
-# back the old large-tool-output case where nothing can be compacted.
-_MAX_TAIL_MESSAGE_FLOOR = 8
+# already exhausted. Token soft-ceiling still bounds oversized tool dumps;
+# floor raised for engineering continuity (ephemeral decisions live in the
+# recent assistant/user turns, not only in the summary).
+_MAX_TAIL_MESSAGE_FLOOR = 16
 
 # Models with context windows below this get their compression threshold
 # floored at ``_SMALL_CTX_THRESHOLD_PERCENT`` (raise-only — an explicitly
