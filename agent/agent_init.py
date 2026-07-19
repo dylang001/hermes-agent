@@ -1941,36 +1941,55 @@ def init_agent(
         )
         agent._context_governor_config = _gov_cfg
         # Align compressor trigger / tail protect with profile when adaptive.
+        # Raise-only vs the compressor's already-resolved threshold so Codex
+        # gpt-5.x autoraise (e.g. 0.50→0.85) and the small-ctx 0.75 floor are
+        # never lowered by an interactive profile hint (0.70).
         if (
             _gov_cfg.budget_mode == "adaptive"
             and _gov_cfg.compression_threshold is not None
             and hasattr(agent.context_compressor, "threshold_percent")
         ):
             _prof_thresh = float(_gov_cfg.compression_threshold)
-            _eff = agent.context_compressor._effective_threshold_percent(
+            _eff_prof = agent.context_compressor._effective_threshold_percent(
                 agent.context_compressor.context_length, _prof_thresh
             )
-            agent.context_compressor._configured_threshold_percent = _prof_thresh
-            agent.context_compressor.threshold_percent = _eff
-            agent.context_compressor.threshold_tokens = (
-                agent.context_compressor._compute_threshold_tokens(
-                    agent.context_compressor.context_length,
-                    _eff,
-                    getattr(agent.context_compressor, "max_tokens", None),
-                )
+            _current = float(
+                getattr(agent.context_compressor, "threshold_percent", 0.0) or 0.0
             )
+            _eff = max(_current, _eff_prof)
+            if _eff > _current + 1e-9:
+                agent.context_compressor._configured_threshold_percent = max(
+                    float(
+                        getattr(
+                            agent.context_compressor,
+                            "_configured_threshold_percent",
+                            _prof_thresh,
+                        )
+                        or _prof_thresh
+                    ),
+                    _prof_thresh,
+                )
+                agent.context_compressor.threshold_percent = _eff
+                agent.context_compressor.threshold_tokens = (
+                    agent.context_compressor._compute_threshold_tokens(
+                        agent.context_compressor.context_length,
+                        _eff,
+                        getattr(agent.context_compressor, "max_tokens", None),
+                    )
+                )
+                _tr = float(
+                    getattr(agent.context_compressor, "summary_target_ratio", 0.25)
+                    or 0.25
+                )
+                agent.context_compressor.tail_token_budget = int(
+                    agent.context_compressor.threshold_tokens * _tr
+                )
             if _gov_cfg.protect_last_n is not None:
-                agent.context_compressor.protect_last_n = int(
-                    _gov_cfg.protect_last_n
+                # Prefer the higher continuity floor.
+                agent.context_compressor.protect_last_n = max(
+                    int(getattr(agent.context_compressor, "protect_last_n", 0) or 0),
+                    int(_gov_cfg.protect_last_n),
                 )
-            # Tail token budget tracks threshold * target_ratio.
-            _tr = float(
-                getattr(agent.context_compressor, "summary_target_ratio", 0.25)
-                or 0.25
-            )
-            agent.context_compressor.tail_token_budget = int(
-                agent.context_compressor.threshold_tokens * _tr
-            )
         _ra().logger.info(
             "Context policy: profile=%s mode=%s window=%s "
             "stages info/opt/compact/emergency=%s/%s/%s/%s "
