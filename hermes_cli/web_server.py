@@ -1753,10 +1753,14 @@ def _dashboard_git_update_guard() -> Dict[str, Any]:
     """Return dashboard update guard metadata for git checkouts.
 
     A plain ``hermes update`` is safe when the checkout can fast-forward to
-    ``origin/main``. It is not safe for protected integration branches that
+    upstream main. It is not safe for protected integration branches that
     carry local commits, because a generic update can move the runtime away from
     those preserved commits. In that case the dashboard should report the
     available upstream updates but require the integration workflow.
+
+    Uses official NousResearch/main (via ``get_upstream_sync_status``) so
+    deploy hosts whose ``origin`` is a local bundle still get a truthful
+    ahead/behind reading.
     """
     try:
         branch = subprocess.run(
@@ -1766,15 +1770,35 @@ def _dashboard_git_update_guard() -> Dict[str, Any]:
             timeout=5,
         )
         branch_name = branch.stdout.strip() if branch.returncode == 0 else ""
-        ahead = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "rev-list", "--count", "origin/main..HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        ahead_count = int(ahead.stdout.strip() or "0") if ahead.returncode == 0 else 0
     except Exception:
-        return {"protected": False, "branch": "", "ahead": 0}
+        branch_name = ""
+
+    ahead_count = 0
+    try:
+        from hermes_cli.banner import get_upstream_sync_status
+
+        sync = get_upstream_sync_status(PROJECT_ROOT)
+        ahead_count = int(sync.get("ahead") or 0)
+    except Exception:
+        try:
+            ahead = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(PROJECT_ROOT),
+                    "rev-list",
+                    "--count",
+                    "origin/main..HEAD",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            ahead_count = (
+                int(ahead.stdout.strip() or "0") if ahead.returncode == 0 else 0
+            )
+        except Exception:
+            ahead_count = 0
 
     protected = ahead_count > 0
     return {
@@ -1790,7 +1814,8 @@ def _dashboard_git_update_guard() -> Dict[str, Any]:
         if protected
         else None,
         "update_command": (
-            "git fetch origin && git merge origin/main && run the Hermes validation suite"
+            "git fetch https://github.com/NousResearch/hermes-agent.git main "
+            "&& git merge FETCH_HEAD && run the Hermes validation suite"
             if protected
             else None
         ),
@@ -3668,18 +3693,30 @@ async def update_hermes():
 
 
 def _recent_upstream_commits(n: int = 20) -> List[Dict[str, Any]]:
-    """Commits the local checkout is behind ``origin/main`` by, newest first.
+    """Commits the local checkout is behind upstream main by, newest first.
 
-    Logs the SAME range the behind-count uses (``HEAD..origin/main`` — see
-    ``banner._check_via_local_git``), NOT the branch's ``@{upstream}``. On a
-    feature-branch checkout ``@{upstream}`` is the branch's own tip (zero
-    commits), which would leave the changelog empty even though the count is
-    non-zero. Pinning to ``origin/main`` keeps count and changelog consistent.
+    Prefers ``origin/main`` when present; otherwise uses
+    ``refs/hermes-upstream/main`` (populated by official-remote fetch). Never
+    uses the branch's ``@{upstream}`` — on integration branches that tip is
+    zero commits ahead of itself.
 
-    Best-effort: returns [] if not a git checkout, origin/main is unreachable,
-    or git is unavailable. Never raises into the request path.
+    Best-effort: returns [] if not a git checkout or git is unavailable.
+    Never raises into the request path.
     """
     try:
+        from hermes_cli.banner import _HERMES_UPSTREAM_REF, _sync_official_upstream_ref
+
+        range_tip = "origin/main"
+        probe = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "rev-parse", "--verify", "origin/main"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if probe.returncode != 0:
+            _sync_official_upstream_ref(PROJECT_ROOT)
+            range_tip = _HERMES_UPSTREAM_REF
+
         out = subprocess.run(
             [
                 "git",
@@ -3687,7 +3724,7 @@ def _recent_upstream_commits(n: int = 20) -> List[Dict[str, Any]]:
                 str(PROJECT_ROOT),
                 "log",
                 "--format=%H%x1f%s%x1f%an%x1f%ct",
-                "HEAD..origin/main",
+                f"HEAD..{range_tip}",
                 f"-n{int(n)}",
             ],
             capture_output=True,
@@ -3765,6 +3802,9 @@ async def check_hermes_update(force: bool = False):
         "install_method": install_method,
         "current_version": __version__,
         "behind": None,
+        "ahead": update_guard.get("ahead"),
+        "local_sha": None,
+        "upstream_sha": None,
         "update_available": False,
         "can_apply": install_method in ("git", "pip")
         and not update_guard.get("protected"),
@@ -3781,7 +3821,7 @@ async def check_hermes_update(force: bool = False):
     # caches the result for 6h. ``force`` busts the cache so the "Check now"
     # button reflects reality immediately.
     try:
-        from hermes_cli.banner import check_for_updates
+        from hermes_cli.banner import check_for_updates, get_upstream_sync_status
 
         if force:
             try:
@@ -3790,19 +3830,65 @@ async def check_hermes_update(force: bool = False):
                 pass
 
         behind = await asyncio.to_thread(check_for_updates)
+        sync = await asyncio.to_thread(get_upstream_sync_status, PROJECT_ROOT)
+        payload["local_sha"] = sync.get("local_sha")
+        payload["upstream_sha"] = sync.get("upstream_sha")
+        if sync.get("ahead") is not None:
+            payload["ahead"] = sync.get("ahead")
+            update_guard["ahead"] = sync.get("ahead")
+            payload["update_guard"] = update_guard
+            # Recompute can_apply once we know ahead against official main.
+            if install_method in ("git", "pip"):
+                protected = int(sync.get("ahead") or 0) > 0
+                update_guard["protected"] = protected
+                if protected:
+                    update_guard["message"] = (
+                        "This backend is on a protected integration branch with "
+                        "local Hermes changes. Merge upstream into the "
+                        "integration branch and apply the tested commit instead "
+                        "of running a generic dashboard update."
+                    )
+                    update_guard["update_command"] = (
+                        "git fetch https://github.com/NousResearch/hermes-agent.git "
+                        "main && git merge FETCH_HEAD && run the Hermes validation suite"
+                    )
+                    payload["can_apply"] = False
+                    payload["update_command"] = update_guard["update_command"]
+                payload["update_guard"] = update_guard
     except Exception:
         _log.exception("Update check failed")
         behind = None
 
     payload["behind"] = behind
+    ahead_n = int(payload.get("ahead") or 0)
     if behind is None:
         payload["message"] = "Couldn't reach the update source — try again later."
+    elif behind == 0 and ahead_n > 0:
+        payload["message"] = (
+            f"Up to date with upstream main; carrying {ahead_n} local commit"
+            f"{'' if ahead_n == 1 else 's'} "
+            f"(local {payload.get('local_sha') or '?'} · "
+            f"upstream {payload.get('upstream_sha') or '?'})."
+        )
     elif behind == 0:
-        payload["message"] = "You're on the latest version."
+        payload["message"] = (
+            "You're on the latest upstream main"
+            + (
+                f" ({payload.get('local_sha')})."
+                if payload.get("local_sha")
+                else "."
+            )
+        )
     else:
         payload["update_available"] = True
         if update_guard.get("protected"):
             payload["message"] = update_guard.get("message")
+        else:
+            payload["message"] = (
+                f"{behind} commit{'s' if behind != 1 else ''} behind upstream main"
+                if isinstance(behind, int) and behind > 0
+                else "Update available from upstream main."
+            )
         # Enrich with the actual commits we're behind by, so the desktop's
         # remote update overlay can show "what's changed". git/pip only;
         # best-effort (empty list on any failure).

@@ -847,19 +847,33 @@ export default function SystemPage() {
               </div>
               <div>
                 <div className="text-xs uppercase tracking-wider text-muted-foreground">Hermes</div>
-                <div className="flex items-center gap-2">
-                  <span>v{stats?.hermes_version}</span>
-                  {canUpdateHermes &&
-                    updateInfo &&
-                    (updateInfo.update_available ? (
-                      <Badge tone="warning">
-                        {updateInfo.behind && updateInfo.behind > 0
-                          ? `${updateInfo.behind} behind`
-                          : "update available"}
-                      </Badge>
-                    ) : updateInfo.behind === 0 ? (
-                      <Badge tone="success">latest</Badge>
-                    ) : null)}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span>v{stats?.hermes_version}</span>
+                    {canUpdateHermes &&
+                      updateInfo &&
+                      (updateInfo.update_available ? (
+                        <Badge tone="warning">
+                          {updateInfo.behind && updateInfo.behind > 0
+                            ? `${updateInfo.behind} behind`
+                            : "update available"}
+                        </Badge>
+                      ) : updateInfo.behind === 0 ? (
+                        <Badge tone="success">
+                          {updateInfo.ahead && updateInfo.ahead > 0
+                            ? `latest +${updateInfo.ahead} local`
+                            : "latest"}
+                        </Badge>
+                      ) : null)}
+                  </div>
+                  {updateInfo?.local_sha && (
+                    <div className="font-mono text-[11px] text-muted-foreground truncate">
+                      local {updateInfo.local_sha}
+                      {updateInfo.upstream_sha
+                        ? ` · upstream ${updateInfo.upstream_sha}`
+                        : ""}
+                    </div>
+                  )}
                 </div>
               </div>
               <div>
@@ -944,8 +958,8 @@ export default function SystemPage() {
                       <span className="font-mono">{updateInfo.update_command}</span>
                     </span>
                   )}
-                {updateInfo?.message && !updateInfo.update_available && (
-                  <span className="text-xs text-muted-foreground">
+                {updateInfo?.message && (
+                  <span className="text-xs text-muted-foreground max-w-xl">
                     {updateInfo.message}
                   </span>
                 )}

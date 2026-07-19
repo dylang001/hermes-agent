@@ -222,6 +222,47 @@ def test_check_via_local_git_full_clone_keeps_exact_count(tmp_path):
     assert result == 7
 
 
+def test_check_via_local_git_bundle_origin_uses_official_upstream(tmp_path):
+    """Deploy hosts with a local bundle as origin must still see Nous main."""
+    import hermes_cli.banner as banner
+
+    repo_dir = tmp_path / "hermes-agent"
+    repo_dir.mkdir()
+    (repo_dir / ".git").mkdir()
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd == ["git", "remote", "get-url", "origin"]:
+            return MagicMock(
+                returncode=0,
+                stdout="/opt/hermes/deploy/hermes-phase1-approved.bundle\n",
+            )
+        if cmd[:3] == ["git", "fetch", "--quiet"] and cmd[3] == banner._UPSTREAM_REPO_URL:
+            return MagicMock(returncode=0, stdout="")
+        if cmd == ["git", "rev-parse", banner._HERMES_UPSTREAM_REF]:
+            return MagicMock(returncode=0, stdout="upstream-sha\n")
+        if cmd == [
+            "git",
+            "rev-list",
+            "--count",
+            f"HEAD..{banner._HERMES_UPSTREAM_REF}",
+        ]:
+            return MagicMock(returncode=0, stdout="0\n")
+        raise AssertionError(f"unexpected git command: {cmd!r}")
+
+    with patch("hermes_cli.banner.subprocess.run", side_effect=fake_run):
+        result = banner._check_via_local_git(repo_dir)
+
+    assert result == 0
+    assert any(
+        c[:3] == ["git", "fetch", "--quiet"] and c[3] == banner._UPSTREAM_REPO_URL
+        for c in calls
+    )
+    assert not any(c[:3] == ["git", "fetch", "origin"] for c in calls)
+
+
 def test_check_for_updates_no_git_dir(tmp_path, monkeypatch):
     """Falls back to PyPI check when .git directory doesn't exist anywhere."""
     import hermes_cli.banner as banner

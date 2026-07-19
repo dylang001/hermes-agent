@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 from hermes_constants import get_hermes_home
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 # rich and prompt_toolkit are imported lazily (inside the functions that use
 # them) rather than at module level.  Importing this module is on the TUI
@@ -122,6 +122,9 @@ UPDATE_AVAILABLE_NO_COUNT = -1
 
 _UPSTREAM_REPO_URL = "https://github.com/NousResearch/hermes-agent.git"
 _OFFICIAL_REPO_CANONICAL = "github.com/nousresearch/hermes-agent"
+# Local ref updated by update-checks when ``origin`` is a bundle/fork/custom
+# remote that does not track NousResearch/main. Not a branch users checkout.
+_HERMES_UPSTREAM_REF = "refs/hermes-upstream/main"
 
 
 def _canonical_github_remote(url: str | None) -> str:
@@ -152,6 +155,11 @@ def _is_ssh_remote(url: str | None) -> bool:
 
 def _is_official_ssh_remote(url: str | None) -> bool:
     return _is_ssh_remote(url) and _canonical_github_remote(url) == _OFFICIAL_REPO_CANONICAL
+
+
+def _is_official_github_remote(url: str | None) -> bool:
+    """True when origin points at the public NousResearch/hermes-agent repo."""
+    return _canonical_github_remote(url) == _OFFICIAL_REPO_CANONICAL
 
 
 def _git_stdout(args: list[str], *, cwd: Path, timeout: int = 5) -> Optional[str]:
@@ -191,8 +199,83 @@ def _check_via_rev(local_rev: str) -> Optional[int]:
     return 0 if upstream_rev == local_rev else UPDATE_AVAILABLE_NO_COUNT
 
 
+def _sync_official_upstream_ref(repo_dir: Path, *, timeout: int = 15) -> Optional[str]:
+    """Fetch NousResearch ``main`` into ``_HERMES_UPSTREAM_REF``.
+
+    Returns the upstream tip SHA on success, else None. Used when ``origin`` is
+    a local bundle / fork / custom remote so dashboard update checks still see
+    real upstream movement.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "fetch",
+                "--quiet",
+                _UPSTREAM_REPO_URL,
+                f"+refs/heads/main:{_HERMES_UPSTREAM_REF}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(repo_dir),
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    return _git_stdout(["rev-parse", _HERMES_UPSTREAM_REF], cwd=repo_dir)
+
+
+def _count_behind_ref(repo_dir: Path, upstream_ref: str) -> Optional[int]:
+    """Return commits in ``upstream_ref`` not reachable from HEAD."""
+    count = _git_stdout(
+        ["rev-list", "--count", f"HEAD..{upstream_ref}"],
+        cwd=repo_dir,
+    )
+    if count is None:
+        return None
+    try:
+        return int(count)
+    except ValueError:
+        return None
+
+
+def _count_ahead_ref(repo_dir: Path, upstream_ref: str) -> Optional[int]:
+    """Return commits on HEAD not reachable from ``upstream_ref``."""
+    count = _git_stdout(
+        ["rev-list", "--count", f"{upstream_ref}..HEAD"],
+        cwd=repo_dir,
+    )
+    if count is None:
+        return None
+    try:
+        return int(count)
+    except ValueError:
+        return None
+
+
+def _check_via_official_upstream_ref(repo_dir: Path) -> Optional[int]:
+    """Count commits behind official main without trusting ``origin``."""
+    upstream_sha = _sync_official_upstream_ref(repo_dir)
+    if not upstream_sha:
+        head_rev = _git_stdout(["rev-parse", "HEAD"], cwd=repo_dir)
+        checked = _check_via_rev(head_rev) if head_rev else None
+        # ls-remote equality only — if unequal, report presence without a
+        # bogus large count (we may be ahead with local commits).
+        if checked == UPDATE_AVAILABLE_NO_COUNT:
+            return UPDATE_AVAILABLE_NO_COUNT
+        return checked
+    return _count_behind_ref(repo_dir, _HERMES_UPSTREAM_REF)
+
+
 def _check_via_local_git(repo_dir: Path) -> Optional[int]:
-    """Count commits behind origin/main in a local checkout."""
+    """Count commits behind upstream main in a local checkout.
+
+    Prefer ``origin/main`` when origin is the official NousResearch repo.
+    Otherwise (deploy bundles, forks, file remotes) fetch official main into
+    ``refs/hermes-upstream/main`` so the dashboard still reports truthfully.
+    """
     origin_url = _git_stdout(["remote", "get-url", "origin"], cwd=repo_dir)
     if _is_official_ssh_remote(origin_url):
         head_rev = _git_stdout(["rev-parse", "HEAD"], cwd=repo_dir)
@@ -200,6 +283,10 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
         if checked == UPDATE_AVAILABLE_NO_COUNT:
             return 1
         return checked
+
+    # Bundle / fork / path remotes: never ask origin for main.
+    if not _is_official_github_remote(origin_url):
+        return _check_via_official_upstream_ref(repo_dir)
 
     # Installer checkouts are shallow (`git clone --depth 1`). On a shallow
     # clone the history stops at a single commit, so a plain `git fetch` would
@@ -248,7 +335,51 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
             return int(result.stdout.strip())
     except Exception:
         pass
-    return None
+    # origin/main missing after fetch — fall back to official remote.
+    return _check_via_official_upstream_ref(repo_dir)
+
+
+def get_upstream_sync_status(repo_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Return local/upstream SHAs and ahead/behind counts for dashboard UI.
+
+    Best-effort; never raises. Keys: local_sha, upstream_sha, behind, ahead,
+    upstream_ref.
+    """
+    status: Dict[str, Any] = {
+        "local_sha": None,
+        "upstream_sha": None,
+        "behind": None,
+        "ahead": None,
+        "upstream_ref": _HERMES_UPSTREAM_REF,
+    }
+    root = repo_dir or _resolve_repo_dir()
+    if root is None:
+        return status
+    local_sha = _git_stdout(["rev-parse", "HEAD"], cwd=root)
+    status["local_sha"] = local_sha[:12] if local_sha else None
+
+    origin_url = _git_stdout(["remote", "get-url", "origin"], cwd=root)
+    upstream_sha: Optional[str] = None
+    behind: Optional[int] = None
+    ahead: Optional[int] = None
+
+    if _is_official_github_remote(origin_url) and not _is_official_ssh_remote(origin_url):
+        upstream_sha = _git_stdout(["rev-parse", "origin/main"], cwd=root)
+        if upstream_sha:
+            behind = _count_behind_ref(root, "origin/main")
+            ahead = _count_ahead_ref(root, "origin/main")
+            status["upstream_ref"] = "origin/main"
+
+    if upstream_sha is None:
+        upstream_sha = _sync_official_upstream_ref(root)
+        if upstream_sha:
+            behind = _count_behind_ref(root, _HERMES_UPSTREAM_REF)
+            ahead = _count_ahead_ref(root, _HERMES_UPSTREAM_REF)
+
+    status["upstream_sha"] = upstream_sha[:12] if upstream_sha else None
+    status["behind"] = behind
+    status["ahead"] = ahead
+    return status
 
 
 def _version_tuple(v: str) -> tuple[int, ...]:

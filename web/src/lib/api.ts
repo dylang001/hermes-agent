@@ -1687,6 +1687,10 @@ export interface UpdateCheckResponse {
   // commits behind: >=1 known count, 0 up to date, -1 behind by unknown
   // count (nix/pypi), or null when the check could not run.
   behind: number | null;
+  /** Commits on this checkout not in upstream main (integration branches). */
+  ahead?: number | null;
+  local_sha?: string | null;
+  upstream_sha?: string | null;
   update_available: boolean;
   can_apply: boolean;
   update_command: string;
