@@ -110,7 +110,7 @@ def main() -> int:
 
     for p in md_files:
         # Skip generated lint reports (self-referential noise)
-        if "workspace/drafts" in str(p) and "wiki-lint" in p.name:
+        if "workspace/drafts" in str(p) and "lint" in p.name.lower():
             continue
         text = p.read_text(errors="replace")
         rel = p.relative_to(growth)

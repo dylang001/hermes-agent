@@ -22,12 +22,14 @@ When sources conflict, resolve against the highest-confidence source quietly and
 - VPS service user: `dylan` (not root)
 - Live audit dir: `/opt/hermes/app/audit`
 - Obsidian Growth OS (VPS): `/opt/hermes/data/obsidian/Growth OS` (MCP must mount this; `/root/obsidian-vault` is stale)
+- Obsidian Growth OS (Mac): `/Users/dylanangloher/Documents/Obsidian Vault/Growth OS`
+- Knowledge OS (2026-07-20): Growth OS `raw/` + `brain/` + `hot.md` + `SCHEMA.md`; skills under `$HERMES_HOME/skills/knowledge-os/`; policy `audit/HERMES_OBSIDIAN_ACCESS_POLICY.md`; runbook `docs/HERMES_KNOWLEDGE_MAINTENANCE_RUNBOOK.md`. Auto-compile ≤ CONNECTED/VERIFIED; CANONICAL via `wiki-promote` + Dylan approval. Cron job templates: `cron/knowledge_os_jobs.json` (Phase G enabled in template; VPS install after sync gate).
 - Legacy path `/usr/local/lib/hermes-agent` is stale — do not treat as current
 - Legacy `/root/.hermes` and `/root/audit` are stale — do not probe from `dylan` sessions
 
 ## VPS Runtime
 
-- host: `hermes-agent-2025`
+- host: `hermes-agent-2025` / SSH `hermes-production` (`138.128.247.49`, user `dylan`)
 - public/Desktop remote URL: `https://hermes.meetlyra.live`
 - dashboard service: `hermes-dashboard.service`
 - gateway service: `hermes-gateway.service`
@@ -35,6 +37,30 @@ When sources conflict, resolve against the highest-confidence source quietly and
 - gateway internal health port: `8642`
 - active MCP children observed during Phase 6: Exa and Obsidian filesystem
 - Zoho MCP endpoints/tokens may be configured, but Zoho was not observed as an active MCP child during Phase 6.
+
+### Standing rule — apply Hermes changes on the VPS
+
+Dylan’s live sessions (Desktop / Telegram / Task OS) use the **VPS** runtime
+(`/opt/hermes/app` + `HERMES_HOME=/opt/hermes/home`), not the local Mac checkout.
+
+**Working rule:** always enable and verify on the VPS. Push vault, skills,
+`SOUL.md`, cron, and config updates to `hermes-production` in the same change.
+Do not leave production paused/disabled after a local-only edit.
+
+Whenever enabling config, deploying code, or restarting Hermes for Dylan’s
+sessions:
+
+1. Change `/opt/hermes/home/config.yaml` (and/or code under `/opt/hermes/app`)
+2. Restart `hermes-gateway` on `hermes-production` (system unit; no passwordless
+   sudo — if `sudo systemctl restart` is unavailable, `kill -9` the MainPID so
+   `Restart=on-failure` brings it back)
+3. Verify with `systemctl is-active hermes-gateway` and a smoke check under
+   `HERMES_HOME=/opt/hermes/home`
+4. Do **not** treat a local-only `~/.hermes` change as production-complete
+5. Knowledge OS cron lives on VPS (`HERMES_HOME=/opt/hermes/home/cron/jobs.json`)
+   — keep those jobs enabled there when approved; Mac cron is not production
+
+Local checkout remains the development workspace; production truth is the VPS.
 
 ## Provider And Memory Facts
 

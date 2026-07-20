@@ -1,18 +1,22 @@
 {
-  "description": "Hermes Knowledge OS v2 maintenance jobs — staged enablement. Lint-only until Phase C critical-clean.",
+  "description": "Hermes Knowledge OS v2 maintenance jobs — Phase G enablement after CRITICAL-clean + manual runs.",
   "enablement_policy": {
-    "phase_b_now": ["knowledge-os-lint"],
-    "after_phase_c_critical_clean": [
+    "phase_g_enabled_order": [
+      "knowledge-os-lint",
       "knowledge-os-daily",
       "knowledge-os-nightly",
       "knowledge-os-weekly",
       "knowledge-os-monthly"
     ],
+    "manual_run_required_before_schedule": true,
+    "vps_install_blocked_until": "Mac→VPS sync unpause gate",
     "never_auto": [
       "CANONICAL promotion",
-      "raw delete",
-      "substantive contradiction resolution",
-      "policy rewrites",
+      "raw delete or raw edit",
+      "substantive knowledge archive/delete",
+      "contradiction resolution",
+      "policy / AGENTS.md / SCHEMA.md / Hermes instruction rewrites",
+      "file moves without approval-backed migration",
       "HERMES.md mutation without proposal"
     ]
   },
@@ -27,30 +31,30 @@
     {
       "id": "knowledge-os-daily",
       "schedule": "0 7 * * *",
-      "enabled": false,
+      "enabled": true,
       "skills": ["wiki-daily", "wiki-ingest"],
-      "prompt": "Knowledge OS daily (enable only after Phase C critical-clean): Load wiki-daily; orient on hot.md + indexes only. List unprocessed raw/ from last 48h. Compile with wiki-ingest to status ≤ CONNECTED. Append compile-log. Do not set CANONICAL."
+      "prompt": "Knowledge OS daily: Load wiki-daily; orient on hot.md + indexes only. Refresh hot.md if focus changed (≤150 words). List unprocessed raw/ from last 48h. Compile with wiki-ingest only when needed, status ≤ CONNECTED/VERIFIED. Update indexes. Append compile-log. Do not set CANONICAL. Do not edit raw/**. Do not treat Business Context or archive/para-migration as SoT."
     },
     {
       "id": "knowledge-os-nightly",
       "schedule": "30 2 * * *",
-      "enabled": false,
+      "enabled": true,
       "skills": ["wiki-lint", "wiki-refactor"],
-      "prompt": "Knowledge OS nightly (enable only after Phase C critical-clean): Run wiki-lint. Auto-fix only safe issues (index rows, missing DRAFT frontmatter). Write report under workspace/drafts/. Propose merges; do not CANONICAL or delete raw/."
+      "prompt": "Knowledge OS nightly: Run wiki-lint. Auto-fix only safe issues (index rows, missing DRAFT frontmatter defaults). Write findings under workspace/review-queues/ or workspace/drafts/. Propose merges/duplicates/stale; do not CANONICAL, do not delete/archive substantive knowledge, do not edit raw/**, do not rewrite AGENTS/SCHEMA/policies."
     },
     {
       "id": "knowledge-os-weekly",
       "schedule": "0 9 * * 1",
-      "enabled": false,
+      "enabled": true,
       "skills": ["wiki-daily", "wiki-lint", "wiki-promote"],
-      "prompt": "Knowledge OS weekly (enable only after Phase C critical-clean): Orient; lint; list CONNECTED/VERIFIED promote candidates; create packages under workspace/promotions/ via wiki-promote but do not apply without Dylan."
+      "prompt": "Knowledge OS weekly: Orient; lint; list CONNECTED/VERIFIED promote candidates; create/update packages under workspace/promotions/ via wiki-promote but do not apply without Dylan. Do not delete redirect stubs."
     },
     {
       "id": "knowledge-os-monthly",
       "schedule": "0 10 1 * *",
-      "enabled": false,
+      "enabled": true,
       "skills": ["wiki-refactor", "wiki-lint"],
-      "prompt": "Knowledge OS monthly (enable only after Phase C critical-clean): Lint then propose archive/ontology updates. No raw deletes. No CANONICAL edits."
+      "prompt": "Knowledge OS monthly: Lint then propose archive/ontology updates under workspace/review-queues/. No raw deletes. No CANONICAL edits. No autonomous archive of substantive knowledge. No unapproved file moves."
     }
   ]
 }

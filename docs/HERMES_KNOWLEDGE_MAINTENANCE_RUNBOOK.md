@@ -25,7 +25,7 @@ Lint script: `scripts/knowledge_os_lint.py` (read-only)
 | Session start (knowledge work) | Read `hot.md` + indexes only | `wiki-daily` |
 | On capture / research | Append `raw/` → compile ≤ CONNECTED | `wiki-ingest` / `wiki-research` (**after Phase C**) |
 | After valuable answers | Offer “become knowledge?” | `wiki-query` |
-| Every 6h (cron) | Read-only lint | `knowledge-os-lint` (**enabled now**) |
+| Every 6h (cron) | Read-only lint | `knowledge-os-lint` (**enabled**) |
 | Daily (cron) | Ingest nudge + hot refresh | `knowledge-os-daily` (**disabled until Phase C critical-clean**) |
 | Nightly (cron) | Lint + light repair | `knowledge-os-nightly` (**disabled until Phase C**) |
 | Weekly (human 15–20m + agent) | Synthesis, gap analysis, promote review | `wiki-refactor` + Dylan promote |
@@ -40,10 +40,10 @@ Lint script: `scripts/knowledge_os_lint.py` (read-only)
 |---------|-----------|---------------------------|
 | Immutable captures | `raw/` | Editing prior raw files |
 | Compiled facts (auto) | `brain/**` status DRAFT…VERIFIED | System prompt / SOUL |
-| Approved durable truth | `brain/**` CANONICAL or `Business Context/` | Auto-CANONICAL without Dylan |
+| Approved durable truth | `brain/**` CANONICAL (Dylan via wiki-promote) | Auto-CANONICAL without Dylan |
 | Thinking / scratch | `workspace/` | Treated as facts |
-| Promote packages | `Drafts/Hermes/promotions/` | Silent overwrite of canon |
-| Strategy / ICP (legacy) | `Business Context/` | Mem0 as SOP substitute |
+| Promote packages | `workspace/promotions/` or `Drafts/Hermes/promotions/` | Silent overwrite of canon |
+| Strategy / ICP | `brain/projects|entities|…` | Archived `Business Context/`; Mem0 as SOP substitute |
 | Live tasks / due dates | ClickUp | Growth OS |
 | Session engineering state | CE V2 WM (runtime) | Vault “working memory” |
 | Ephemeral preferences | Mem0 | Growth OS |
@@ -95,15 +95,17 @@ Production cron is **VPS only** (`HERMES_HOME=/opt/hermes/home`). Templates also
 
 | Job id | Schedule (UTC expr) | Prompt focus | VPS status |
 |--------|---------------------|--------------|------------|
-| `knowledge-os-lint` | `0 */6 * * *` | read-only lint | **enable now** |
-| `knowledge-os-daily` | `0 7 * * *` | wiki-daily + pending raw ingest | disabled until Phase C critical-clean |
-| `knowledge-os-nightly` | `30 2 * * *` | wiki-lint + light link repair | disabled until Phase C |
-| `knowledge-os-weekly` | `0 9 * * 1` | synthesis / gaps / promote queue | disabled until Phase C |
-| `knowledge-os-monthly` | `0 10 1 * *` | archive / entropy reduction | disabled until Phase C |
+| `knowledge-os-lint` | `0 */6 * * *` | read-only lint | template **enabled** (Phase G); VPS install after sync gate |
+| `knowledge-os-daily` | `0 7 * * *` | hot/indexes + pending raw ingest ≤ VERIFIED | template **enabled**; VPS after sync gate |
+| `knowledge-os-nightly` | `30 2 * * *` | lint + safe index/metadata; review queues | template **enabled**; VPS after sync gate |
+| `knowledge-os-weekly` | `0 9 * * 1` | promote queue packages (no apply) | template **enabled**; VPS after sync gate |
+| `knowledge-os-monthly` | `0 10 1 * *` | archive/ontology proposals only | template **enabled**; VPS after sync gate |
 
-Cron sessions use skills `wiki-daily`, `wiki-ingest`, `wiki-lint`, `wiki-refactor` as appropriate. Default `skip_memory` is fine.
+Cron sessions use skills `wiki-daily`, `wiki-ingest`, `wiki-lint`, `wiki-refactor`, `wiki-promote` as appropriate. Default `skip_memory` is fine.
 
-Resume after Phase C (on VPS):
+**Never auto:** CANONICAL apply, raw edit/delete, substantive archive/delete, contradiction resolution, policy/AGENTS/SCHEMA rewrites, unapproved moves.
+
+Install/resume on VPS only after Mac→VPS sync is unpaused:
 
 ```bash
 ssh hermes-production 'cd /opt/hermes/app && HERMES_HOME=/opt/hermes/home .venv/bin/python -c "

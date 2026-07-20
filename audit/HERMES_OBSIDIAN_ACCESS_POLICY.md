@@ -140,5 +140,5 @@ Bundled generic `obsidian` / `llm-wiki` skills must defer to this policy and Gro
 | `INTEGRATION_SPEC.md` cycle-1 REST | **Deprecated for Hermes**; filesystem MCP is live |
 | Generic `llm-wiki` → `~/wiki` | Do not use for Growth OS; use `knowledge-os` skills |
 | Vault-root `Home.md` PARA layout | Pointer only; not working brain |
-| `Business Context/` | Transitional until Phase E archive |
+| `Business Context/` | Archived Phase E (README only); not SoT |
 | Templates/note-template.md | Retired; use Templates/Knowledge OS |
