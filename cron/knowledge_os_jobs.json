@@ -1,0 +1,56 @@
+{
+  "description": "Hermes Knowledge OS v2 maintenance jobs — staged enablement. Lint-only until Phase C critical-clean.",
+  "enablement_policy": {
+    "phase_b_now": ["knowledge-os-lint"],
+    "after_phase_c_critical_clean": [
+      "knowledge-os-daily",
+      "knowledge-os-nightly",
+      "knowledge-os-weekly",
+      "knowledge-os-monthly"
+    ],
+    "never_auto": [
+      "CANONICAL promotion",
+      "raw delete",
+      "substantive contradiction resolution",
+      "policy rewrites",
+      "HERMES.md mutation without proposal"
+    ]
+  },
+  "jobs": [
+    {
+      "id": "knowledge-os-lint",
+      "schedule": "0 */6 * * *",
+      "enabled": true,
+      "skills": ["wiki-lint"],
+      "prompt": "Knowledge OS lint (read-only): Run `python scripts/knowledge_os_lint.py` against Growth OS (Mac path or VPS /opt/hermes/data/obsidian/Growth OS). Summarize CRITICAL/WARN counts. Do not merge, ingest, archive, promote, or rewrite pages. If CRITICAL>0, list paths and stop."
+    },
+    {
+      "id": "knowledge-os-daily",
+      "schedule": "0 7 * * *",
+      "enabled": false,
+      "skills": ["wiki-daily", "wiki-ingest"],
+      "prompt": "Knowledge OS daily (enable only after Phase C critical-clean): Load wiki-daily; orient on hot.md + indexes only. List unprocessed raw/ from last 48h. Compile with wiki-ingest to status ≤ CONNECTED. Append compile-log. Do not set CANONICAL."
+    },
+    {
+      "id": "knowledge-os-nightly",
+      "schedule": "30 2 * * *",
+      "enabled": false,
+      "skills": ["wiki-lint", "wiki-refactor"],
+      "prompt": "Knowledge OS nightly (enable only after Phase C critical-clean): Run wiki-lint. Auto-fix only safe issues (index rows, missing DRAFT frontmatter). Write report under workspace/drafts/. Propose merges; do not CANONICAL or delete raw/."
+    },
+    {
+      "id": "knowledge-os-weekly",
+      "schedule": "0 9 * * 1",
+      "enabled": false,
+      "skills": ["wiki-daily", "wiki-lint", "wiki-promote"],
+      "prompt": "Knowledge OS weekly (enable only after Phase C critical-clean): Orient; lint; list CONNECTED/VERIFIED promote candidates; create packages under workspace/promotions/ via wiki-promote but do not apply without Dylan."
+    },
+    {
+      "id": "knowledge-os-monthly",
+      "schedule": "0 10 1 * *",
+      "enabled": false,
+      "skills": ["wiki-refactor", "wiki-lint"],
+      "prompt": "Knowledge OS monthly (enable only after Phase C critical-clean): Lint then propose archive/ontology updates. No raw deletes. No CANONICAL edits."
+    }
+  ]
+}

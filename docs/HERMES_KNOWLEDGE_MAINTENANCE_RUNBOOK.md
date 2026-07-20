@@ -1,8 +1,8 @@
 # Hermes Knowledge Maintenance Runbook
 
-**Date:** 2026-07-15  
+**Date:** 2026-07-20  
 **Owner:** Dylan (+ Hermes operators)  
-**Purpose:** Keep Growth OS accurate, synced to VPS, and safely readable by agents — without turning Obsidian into a second task system or memory backend.
+**Purpose:** Operate Growth OS as a Knowledge OS — Hermes compiles; Obsidian persists — without turning the vault into Mem0, ClickUp, or a prompt dump.
 
 Canonical paths:
 
@@ -10,20 +10,27 @@ Canonical paths:
 - VPS: `/opt/hermes/data/obsidian/Growth OS`
 - Never: `/root/obsidian-vault`
 
-Policy refs: `audit/HERMES_OBSIDIAN_ACCESS_POLICY.md`, `audit/HERMES_OBSIDIAN_SYNC_DESIGN.md`
+Policy: `audit/HERMES_OBSIDIAN_ACCESS_POLICY.md` · Vault: `SCHEMA.md` · `AGENTS.md` · `ONTOLOGY.md`
+
+Skills: `$HERMES_HOME/skills/knowledge-os/` (`wiki-daily`, `wiki-ingest`, `wiki-query`, `wiki-promote`, `wiki-lint`, `wiki-refactor`, `wiki-research`)
+
+Lint script: `scripts/knowledge_os_lint.py` (read-only)
 
 ---
 
-## 1. Weekly rhythm (15–20 minutes)
+## 1. Cadence
 
-1. **Scan Research Inbox** — promote verified claims into `Business Context/` or reject; leave unverified as inbox/drafts.
-2. **Decision Log** — ensure any architecture calls from the week have a dated row.
-3. **Current Priorities** — sync wording with ClickUp (priorities live in Obsidian; due dates stay in ClickUp).
-4. **Drafts review** — walk `Growth OS/Drafts/Hermes/`; promote, archive, or delete.
-5. **Sync** — run Mac→VPS push (or confirm LaunchAgent succeeded) after edits (§3).
-6. **Smoke** — one list/search via Hermes against Growth OS; no stale `/root` paths in logs.
-
-Optional: append a short note to Weekly Review from the week’s distillations only (not raw ClickUp dumps).
+| Cadence | Action | Skill / job |
+|---------|--------|-------------|
+| Session start (knowledge work) | Read `hot.md` + indexes only | `wiki-daily` |
+| On capture / research | Append `raw/` → compile ≤ CONNECTED | `wiki-ingest` / `wiki-research` (**after Phase C**) |
+| After valuable answers | Offer “become knowledge?” | `wiki-query` |
+| Every 6h (cron) | Read-only lint | `knowledge-os-lint` (**enabled now**) |
+| Daily (cron) | Ingest nudge + hot refresh | `knowledge-os-daily` (**disabled until Phase C critical-clean**) |
+| Nightly (cron) | Lint + light repair | `knowledge-os-nightly` (**disabled until Phase C**) |
+| Weekly (human 15–20m + agent) | Synthesis, gap analysis, promote review | `wiki-refactor` + Dylan promote |
+| Monthly | Archive entropy reduction | `wiki-refactor` archive pass |
+| After substantial work | Propose SOUL/skill diffs | `self-improvement` |
 
 ---
 
@@ -31,99 +38,110 @@ Optional: append a short note to Weekly Review from the week’s distillations o
 
 | Content | Put it in | Do not put it in Obsidian |
 |---------|-----------|---------------------------|
-| Strategy / ICP / voice | `Business Context/` | Mem0 as a substitute for the SOP |
-| Operating rules | `Agent Rules.md` / Access Policy | Chat-only tribal knowledge |
-| Decisions | `Decision Log.md` | ClickUp comments alone (link both ways by ID) |
-| Agent proposals | `Drafts/Hermes/` | Overwriting INDEX / Templates |
-| Live tasks / due dates | ClickUp | Growth OS canon |
-| Session transcripts | Session Search | Growth OS (except distilled lessons) |
+| Immutable captures | `raw/` | Editing prior raw files |
+| Compiled facts (auto) | `brain/**` status DRAFT…VERIFIED | System prompt / SOUL |
+| Approved durable truth | `brain/**` CANONICAL or `Business Context/` | Auto-CANONICAL without Dylan |
+| Thinking / scratch | `workspace/` | Treated as facts |
+| Promote packages | `Drafts/Hermes/promotions/` | Silent overwrite of canon |
+| Strategy / ICP (legacy) | `Business Context/` | Mem0 as SOP substitute |
+| Live tasks / due dates | ClickUp | Growth OS |
+| Session engineering state | CE V2 WM (runtime) | Vault “working memory” |
 | Ephemeral preferences | Mem0 | Growth OS |
 
 ---
 
 ## 3. Sync operations (Mac)
 
-**Preferred script:** `~/.hermes/bin/sync-obsidian-to-hermes-remote.sh`  
-(Harden per sync design before relying on automation.)
+**Preferred script:** `~/.hermes/bin/sync-obsidian-to-hermes-remote.sh`
 
 ```bash
-# Dry-run once tooling supports it
 HERMES_OBSIDIAN_SYNC_DRY_RUN=1 ~/.hermes/bin/sync-obsidian-to-hermes-remote.sh
-
-# Live push (Growth OS only → hermes-production)
 ~/.hermes/bin/sync-obsidian-to-hermes-remote.sh
 ```
 
-**Checks**
-
 ```bash
 ssh hermes-production 'ls -la "/opt/hermes/data/obsidian/Growth OS" | head'
-ssh hermes-production 'test -L /opt/hermes/data/obsidian/GrowthOS && readlink /opt/hermes/data/obsidian/GrowthOS'
+ssh hermes-production 'test -f "/opt/hermes/data/obsidian/Growth OS/SCHEMA.md" && echo SCHEMA_OK'
 ```
 
-**Do not**
-
-- Load bidirectional `sync-obsidian-vault.sh` without approval.
-- Sync the entire Obsidian vault root to the VPS MCP mount.
-- Use `--delete` without mass-delete guards + explicit force env.
-
-**LaunchAgent**
-
-- Sync plist: `~/Library/LaunchAgents/com.hermes.obsidian-vault-sync.plist` — currently unloaded; when enabled, must call the **push-only** script.
-- Reverse tunnel plist: unload if Local REST API is unused (`launchctl bootout gui/$(id -u)/com.hermes.obsidian-reverse-tunnel`).
+**Do not** load bidirectional sync, sync the full vault root, or use `--delete` without guards.
 
 ---
 
 ## 4. Agent access (ops)
 
-1. MCP mount = Growth OS only (local + VPS configs).
-2. Default tools: list / search / read.
-3. Agent writes → `Drafts/Hermes/` (create the folder if missing).
-4. Canon edits → Dylan approval in-session or via ClickUp.
-5. After config changes: `hermes mcp list` / restart gateway if required; verify tools against Growth OS.
-
-Secrets (`OBSIDIAN_API_TOKEN`, etc.) stay in `.env` / secrets files — never in vault notes.
+1. MCP mount = Growth OS only.
+2. Orient: `hot.md` → `INDEX.md` / `AGENTS.md` / `brain/_indexes/root.md` → page.
+3. Auto-writes: Knowledge OS lanes (Access Policy §2).
+4. CANONICAL / root policy → Dylan + `wiki-promote`. Do not treat Business Context as SoT.
+5. Never vault-dump into system prompt. Filesystem MCP only (Local REST deprecated for Hermes).
 
 ---
 
-## 5. Incident responses
+## 5. Promotion checklist (CONNECTED/VERIFIED → CANONICAL)
+
+1. Page exists under `brain/` with status CONNECTED or VERIFIED.
+2. `wiki-promote` writes package under `Drafts/Hermes/promotions/`.
+3. Dylan reviews (or ClickUp approval linked).
+4. Apply: set `status: CANONICAL`, `promoted_by`, update indexes. Do **not** mirror into Business Context.
+5. Mac→VPS sync (when unpaused).
+6. Log in Agent Run Logs + `compile-log.md`.
+
+---
+
+## 6. Cron jobs (VPS — production)
+
+Production cron is **VPS only** (`HERMES_HOME=/opt/hermes/home`). Templates also live in repo `cron/knowledge_os_jobs.json`.
+
+| Job id | Schedule (UTC expr) | Prompt focus | VPS status |
+|--------|---------------------|--------------|------------|
+| `knowledge-os-lint` | `0 */6 * * *` | read-only lint | **enable now** |
+| `knowledge-os-daily` | `0 7 * * *` | wiki-daily + pending raw ingest | disabled until Phase C critical-clean |
+| `knowledge-os-nightly` | `30 2 * * *` | wiki-lint + light link repair | disabled until Phase C |
+| `knowledge-os-weekly` | `0 9 * * 1` | synthesis / gaps / promote queue | disabled until Phase C |
+| `knowledge-os-monthly` | `0 10 1 * *` | archive / entropy reduction | disabled until Phase C |
+
+Cron sessions use skills `wiki-daily`, `wiki-ingest`, `wiki-lint`, `wiki-refactor` as appropriate. Default `skip_memory` is fine.
+
+Resume after Phase C (on VPS):
+
+```bash
+ssh hermes-production 'cd /opt/hermes/app && HERMES_HOME=/opt/hermes/home .venv/bin/python -c "
+from cron.jobs import resume_job
+for n in [\"knowledge-os-lint\",\"knowledge-os-daily\",\"knowledge-os-nightly\",\"knowledge-os-weekly\",\"knowledge-os-monthly\"]:
+    print(n, resume_job(n).get(\"next_run_at\"))
+"'
+```
+
+---
+
+## 7. Incident responses
 
 | Symptom | Action |
 |---------|--------|
-| Agent uses `/root/obsidian-vault` | Confirm remap + VPS MCP args; heal memory/session text if needed; never recreate that path |
-| VPS knowledge stale | Run Mac→VPS push; check sync logs / LaunchAgent |
-| Accidental canon overwrite | Restore from Mac vault git history; re-sync Mac→VPS; append Agent Run Log |
-| Reverse tunnel spam / exit 255 | `bootout` the LaunchAgent; confirm FS MCP still healthy |
-| Suspected bidirectional conflict | Stop sync LaunchAgent; compare mtimes Mac vs VPS; restore from Mac git; resume push-only only |
+| Agent uses `/root/obsidian-vault` | Remap + heal; never recreate that path |
+| VPS knowledge stale | Mac→VPS push |
+| Accidental CANONICAL / Business Context overwrite | Restore from Mac vault history; re-sync; Agent Run Log |
+| Brain page without frontmatter status | Lint failure — add status ≤ CONNECTED or quarantine to workspace |
+| Prompt cache / huge context | Stop vault dumps; use hot + indexes only |
 
 ---
 
-## 6. Promotion checklist (Draft → canon)
+## 8. Explicit non-maintenance
 
-1. Draft exists under `Drafts/Hermes/`.
-2. Dylan reviews (or ClickUp approval linked).
-3. Move/merge into target path (`Business Context/`, Templates fill, Decision Log row, etc.).
-4. Leave a stub or delete draft; avoid duplicates.
-5. Mac→VPS sync.
-6. Log promotion in Agent Run Logs if an agent assisted.
-
----
-
-## 7. Explicit non-maintenance
-
-- Do not rebuild a parallel “Hermes knowledge DB.”
-- Do not auto-commit or auto-push the private vault git repo from Hermes.
-- Do not expand MCP to the full vault “for convenience.”
-- Do not store API keys, SMTP passwords, or session tokens in Growth OS notes.
+- Do not rebuild a parallel `~/wiki` for Growth OS.
+- Do not auto-CANONICAL.
+- Do not auto-commit the private vault git repo from Hermes.
+- Do not expand MCP to the full vault.
+- Do not store secrets in Growth OS notes.
 
 ---
 
-## 8. Pointers
+## 9. Pointers
 
 | Doc | Path |
 |-----|------|
-| Full inventory | `audit/HERMES_OBSIDIAN_V2_AUDIT.md` |
-| Sync design | `audit/HERMES_OBSIDIAN_SYNC_DESIGN.md` |
 | Access policy | `audit/HERMES_OBSIDIAN_ACCESS_POLICY.md` |
-| Validation snapshot | `audit/HERMES_OBSIDIAN_VALIDATION_REPORT.md` |
+| Sync design | `audit/HERMES_OBSIDIAN_SYNC_DESIGN.md` |
 | Runtime paths | `CANONICAL_CONTEXT.md` |
+| Vault schema | Growth OS `SCHEMA.md` |
