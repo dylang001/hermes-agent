@@ -102,7 +102,7 @@ Prefer Knowledge OS compile + promote packages over rewriting root docs.
 | Mount path | Growth OS only (Mac or VPS absolute path) |
 | Forbidden mount | `/root/obsidian-vault`, full `Obsidian Vault` parent |
 | Writes | Allowed under Knowledge OS lanes; skills enforce status gates |
-| Sync | Mac→VPS push only (paused during KOS v2 freeze) |
+| Sync | Mac→VPS push (`sync-obsidian-to-hermes-remote.sh`); LaunchAgent loaded — grant FDA if TCC blocks Documents |
 | Local REST API | **Deprecated for Hermes**; filesystem MCP is canonical. Plugin may remain for Claudian/personal use — Hermes must not depend on it. |
 
 Bundled generic `obsidian` / `llm-wiki` skills must defer to this policy and Growth OS `SCHEMA.md`. Prefer `knowledge-os/*` skills.
