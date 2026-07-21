@@ -129,3 +129,18 @@ Prefer `knowledge-os/*` skills over generic `llm-wiki`.
 3. Orient: indexes → page. No vault dump.
 4. Write only approved lanes; CANONICAL via promote package.
 5. Emit touched-path receipt after knowledge-heavy runs.
+
+---
+
+## 9. Model B tooling (Mac)
+
+| Tool | Role |
+|------|------|
+| `~/.hermes/bin/kos-mac-to-vps.sh` | Mac→VPS convergence (**no `--delete`**) |
+| `~/.hermes/bin/kos-model-b.py` | Receipts, baseline, pull-back, hash verify |
+
+Receipt schema: `kos-touched-path-receipt/v1` under `Growth OS/workspace/receipts/`.  
+Baseline: `Growth OS/workspace/sync/baseline-hashes.json`.  
+Quarantine: `Growth OS/workspace/quarantine/`.
+
+Hermes must emit a touched-path receipt after knowledge-heavy writes. Pull-back is Mac-side; Hermes does not Git-commit the Mac vault.
