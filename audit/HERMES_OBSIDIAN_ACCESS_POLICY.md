@@ -1,144 +1,131 @@
 # Hermes Obsidian Access Policy — Knowledge OS v2
 
-**Date:** 2026-07-20  
+**Date:** 2026-07-21  
 **Audience:** Hermes agents (CLI, gateway, Task OS), operators  
-**Vault scope:** Growth OS only (`…/Obsidian Vault/Growth OS`)
+**Vault scope:** Growth OS only (`…/Obsidian Vault/Growth OS`)  
+**Operating model:** Controlled Model B
 
-Related: vault `AGENTS.md`, `SCHEMA.md`, `ONTOLOGY.md`, `TAXONOMY.md`, Agent Rules.
+Related: vault `AGENTS.md` (`source_of_truth: true`), `SCHEMA.md`, `ONTOLOGY.md`, `TAXONOMY.md`, Agent Rules.
 
 ---
 
 ## 1. Principles
 
 1. **Obsidian = curated company knowledge + compiled Knowledge OS brain**, not Mem0, tasks, or raw transcripts-as-canon.
-2. **Capture once. Compile forever.** `raw/` is immutable; Hermes compiles into `brain/`.
-3. **Mac Growth OS is authoring authority.** VPS is a mirror for agents on `hermes-production`.
-4. **Fail closed** on CANONICAL / root policy writes, full-vault access, secrets, and bidirectional sync without approval.
+2. **Capture once. Compile forever.** New `raw/` files may be created; once created they are **immutable**. Hermes compiles into `brain/`.
+3. **Mac Growth OS is versioned authority.** VPS is Hermes’ **writable runtime mirror**. Durability = hash-based VPS→Mac pull-back → Mac Git → Mac→VPS sync.
+4. **Fail closed** on CANONICAL / governance writes, full-vault access, secrets, and treating bidirectional sync as authority.
 5. Prefer **one MCP filesystem mount on Growth OS** — do not also open the parent vault.
-6. **Never inject vault bodies into SOUL.md / system prompt.** Orient via `hot.md` + progressive indexes.
-7. **Business Context is transitional** — not a parallel source of truth after entity migration.
-8. **Vault-root PARA is not the working brain** — migrating to `archive/para-migration/`.
+6. **Never inject vault bodies into SOUL.md / system prompt.** Orient via `wiki-daily` → `hot.md` + progressive indexes.
+7. **Business Context and vault-root PARA are not SoT** (archived).
+8. **No parallel top-level SoT trees.** Compile into `brain/**`; proposals for new top-level folders only.
 
 ---
 
-## 2. Allowed operations by default
+## 2. Controlled Model B
 
-| Op | Allowed | Notes |
-|----|---------|-------|
-| List / search / read under Growth OS | Yes | Prefer MCP / file tools |
-| Read outside Growth OS | No | MCP must not mount parent vault |
-| Append new files under `raw/` | Yes | Never edit/delete existing raw |
-| Write `brain/**` at DRAFT…VERIFIED | Yes | Frontmatter `status` required |
-| Update `hot.md`, append `compile-log.md` | Yes | Keep hot ≤150 words |
-| Write `workspace/**` (incl. promotions) | Yes | Thinking + promote packages |
-| Read-only lint + report under `workspace/drafts/` | Yes | No auto-merge/delete |
-| Set `status: CANONICAL` or edit CANONICAL | No | Requires Dylan + `wiki-promote` |
-| Mutate root policy / treat BC as SoT | No | Requires Dylan approval |
+| Field | Value |
+|-------|--------|
+| Authoritative copy | Mac Git vault `Growth OS/` |
+| Hermes runtime copy | `/opt/hermes/data/obsidian/Growth OS` |
+| Hermes may write | Approved lanes on VPS (and Mac only if that is the active mount) |
+| Durability | Pull-back consumes touched-path receipts; hash compare vs `last_common_hash` |
+| Conflicts | Both sides changed → quarantine both; live Mac untouched |
+| Sync restore | Mac→VPS after commit |
 
-### Canonical (approval required)
+### Hermes may directly write
 
-- Root operating docs: `INDEX.md`, `AGENTS.md`, `SCHEMA.md`, `ONTOLOGY.md`, `Agent Rules.md`, `Operating Principles.md`, `Current Priorities.md`, …
-- Brain pages with `status: CANONICAL`
-- Destructive archive/delete of `raw/` or mass delete of brain pages
-- Vault-root PARA outside the Growth OS mount (except read during migration)
-- Enabling autonomous ingest/merge/archive cron before Phase C critical-clean
+- `workspace/**`
+- `logs/**` (append)
+- `hot.md`
+- `compile-log.md` (append only)
+- `brain/_indexes/**`
+- `brain/**` at DRAFT…VERIFIED (autonomous DRAFT→VERIFIED when SCHEMA criteria met)
+- **new** `raw/**` artifacts only
 
-### Knowledge OS auto-write lanes (authority B)
+### Hermes may only propose
 
-| Path | Rule |
-|------|------|
-| `raw/**` | Create new files only |
-| `brain/**` | Create/update when `status` ∈ {DRAFT, EXTRACTED, STRUCTURED, CONNECTED, VERIFIED} |
-| `brain/_indexes/**` | Maintain indexes |
-| `hot.md` | Rewrite allowed (keep short) |
-| `compile-log.md` | Append only |
-| `workspace/**` | Free (non-factual) + promotion packages |
-| `logs/**` | Append |
-| `Drafts/Hermes/**` | Transitional; prefer `workspace/promotions/` |
-| `Templates/Knowledge OS/**` | May copy from |
+- Governance changes
+- CANONICAL promote/demote / CANONICAL edits
+- Deletes, moves, archives
+- New top-level folders
+- Unsupported status changes
 
----
+### Raw rules (explicit)
 
-## 3. Staging and promotions
-
-**Default proposal path:** `Growth OS/workspace/promotions/` (legacy: `Drafts/Hermes/promotions/`)  
-**CANONICAL packages:** `YYYY-MM-DD-<slug>.md`
-
-Promotion to CANONICAL requires Dylan approval. Do **not** mirror into Business Context as a second SoT.
+| Op | Allowed? |
+|----|----------|
+| Create new raw file | Yes |
+| Edit existing raw | No |
+| Move existing raw | No |
+| Delete existing raw | No |
 
 ---
 
-## 4. Append safe-zones (continuity)
+## 3. Decision Log
 
-Still allowed as append-only:
-
-- `Agent Run Logs.md`
-- `Decision Log.md` (only for decisions Dylan explicitly made **in the current session**)
-
-Prefer Knowledge OS compile + promote packages over rewriting root docs.
+- Subagents **never** append.
+- Coordinating Hermes session may append **verified factual** entries.
+- Dylan approvals require a **traceable approval reference**.
+- Material governance decisions remain proposals until approved.
 
 ---
 
-## 5. Approval channel
+## 4. Staging and promotions
 
-**Required when the agent would:**
+**Default proposal path:** `Growth OS/workspace/promotions/`  
+**Touched-path receipts:** `Growth OS/workspace/receipts/`  
+**CANONICAL packages:** `YYYY-MM-DD-<slug>.md` via `wiki-promote` + Dylan OK.
 
-- Set or edit CANONICAL brain pages
-- Change Agent Rules, Operating Principles, INDEX/SCHEMA/ONTOLOGY/AGENTS authority
-- Treat `Business Context/` as live SoT
-- Edit/delete immutable `raw/` sources
-- Expand MCP beyond Growth OS
-- Auto-resolve substantive contradictions or delete knowledge
-
-**Approval channel:** Dylan in the same session/channel, or ClickUp approval task.  
-**Not sufficient:** inferred silence, “obviously desired,” campaign approval for outreach.
+Do **not** mirror into Business Context as a second SoT.
 
 ---
 
-## 6. MCP configuration posture
+## 5. Lint during reconciliation (and generally)
+
+`knowledge-os-lint` is **read-only** regarding vault content:
+
+- May run `scripts/knowledge_os_lint.py`
+- May write a **new UTC-timestamped** report under `workspace/drafts/`
+- Must **not** overwrite prior reports
+- Must **not** append `compile-log.md`
+- Must **not** create refactor/promote packages
+- Must **not** merge, ingest, archive, or rewrite pages
+
+Write-capable cron (daily/nightly/weekly/monthly) stays **paused** until reconciliation completes and Dylan re-enables.
+
+---
+
+## 6. MCP / sync posture
 
 | Setting | Required posture |
 |---------|------------------|
-| Mount path | Growth OS only (Mac or VPS absolute path) |
-| Forbidden mount | `/root/obsidian-vault`, full `Obsidian Vault` parent |
-| Writes | Allowed under Knowledge OS lanes; skills enforce status gates |
-| Sync | Mac→VPS push (`sync-obsidian-to-hermes-remote.sh`); LaunchAgent loaded — grant FDA if TCC blocks Documents |
-| Local REST API | **Deprecated for Hermes**; filesystem MCP is canonical. Plugin may remain for Claudian/personal use — Hermes must not depend on it. |
+| Mount path | Growth OS only |
+| Forbidden mount | `/root/obsidian-vault`, full vault parent |
+| Sync push | Mac→VPS via `sync-obsidian-to-hermes-remote.sh` (Documents-capable shell) |
+| Sync pull-back | Controlled hash-based VPS→Mac (Model B) |
+| Local REST | Deprecated for Hermes |
 
-Bundled generic `obsidian` / `llm-wiki` skills must defer to this policy and Growth OS `SCHEMA.md`. Prefer `knowledge-os/*` skills.
+Prefer `knowledge-os/*` skills over generic `llm-wiki`.
 
 ---
 
-## 7. System boundaries (do not mix)
+## 7. System boundaries
 
 | Need | Use |
 |------|-----|
-| Durable user/agent fact | Mem0 / configured memory provider |
-| “What did we say last Tuesday?” | Session Search |
-| Session engineering state | CE V2 Working Memory (runtime — not vault) |
-| Worker execution state | Kanban |
-| Queue / due / assignee / approve | ClickUp |
-| Strategy / compiled knowledge | Obsidian Growth OS `brain/` |
+| Durable user/agent fact | Mem0 — not SOPs / implementation-state |
+| Session recall | Session Search |
+| Runtime engineering state | CE V2 Working Memory |
+| Queue / due / approve | ClickUp |
+| Compiled knowledge | Growth OS `brain/` |
 
 ---
 
-## 8. Agent onboarding checklist
+## 8. Onboarding checklist
 
-1. Read `hot.md`, `INDEX.md`, `AGENTS.md`, `SCHEMA.md`, `Agent Rules.md`, this Access Policy.
-2. Confirm vault path (Mac or VPS Growth OS) — never `/root/obsidian-vault`.
-3. Progressive open: indexes → page. No vault dump into prompts.
-4. Auto-writes only in Knowledge OS lanes; CANONICAL via `wiki-promote`.
-5. After substantial knowledge work: load `self-improvement` if reusable rules emerged.
-
----
-
-## 9. Reconciliation of older docs
-
-| Older source | Treat as |
-|--------------|----------|
-| Phase 7E “Drafts-only writes” | Superseded by Knowledge OS authority B for `raw/` + `brain/` DRAFT…VERIFIED |
-| `INTEGRATION_SPEC.md` cycle-1 REST | **Deprecated for Hermes**; filesystem MCP is live |
-| Generic `llm-wiki` → `~/wiki` | Do not use for Growth OS; use `knowledge-os` skills |
-| Vault-root `Home.md` PARA layout | Pointer only; not working brain |
-| `Business Context/` | Archived Phase E (README only); not SoT |
-| Templates/note-template.md | Retired; use Templates/Knowledge OS |
+1. Read `AGENTS.md` (SoT), `hot.md`, `SCHEMA.md`, Agent Rules, this policy.
+2. Confirm Growth OS path (Mac or VPS) — never `/root/obsidian-vault`.
+3. Orient: indexes → page. No vault dump.
+4. Write only approved lanes; CANONICAL via promote package.
+5. Emit touched-path receipt after knowledge-heavy runs.

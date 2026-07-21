@@ -186,15 +186,21 @@ def main() -> int:
 
     out_dir = growth / "workspace" / "drafts"
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # UTC timestamped reports — never overwrite a prior run
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
     json_path = out_dir / f"{stamp}-wiki-lint.json"
     md_path = out_dir / f"{stamp}-wiki-lint.md"
+    # Also refresh a stable pointer for convenience (optional symlink-like copy name)
+    latest_json = out_dir / "wiki-lint-latest.json"
+    latest_md = out_dir / "wiki-lint-latest.md"
     json_path.write_text(json.dumps(report, indent=2) + "\n")
+    latest_json.write_text(json_path.read_text())
 
     lines = [
         f"# Wiki lint — {stamp}",
         "",
         f"Growth OS: `{growth}`",
+        f"Generated (UTC): {report['generated_at']}",
         f"CRITICAL: {len(crit)} · WARN: {len(warn)} · INFO: {len(info)}",
         "",
         "## CRITICAL",
@@ -211,6 +217,7 @@ def main() -> int:
         lines.append(f"- `{f['path']}` — **{f['kind']}**: {f['detail']}")
     lines.append("")
     md_path.write_text("\n".join(lines))
+    latest_md.write_text(md_path.read_text())
 
     print(f"Lint wrote {md_path}")
     print(f"CRITICAL={len(crit)} WARN={len(warn)} INFO={len(info)}")
