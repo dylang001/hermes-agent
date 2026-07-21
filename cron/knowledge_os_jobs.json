@@ -1,5 +1,5 @@
 {
-  "description": "Hermes Knowledge OS v2 maintenance jobs \u2014 write jobs paused for Model B pilot; lint may run.",
+  "description": "Hermes Knowledge OS v2 maintenance jobs \u2014 daily+lint enabled after observed Model B cycle; nightly/weekly/monthly remain paused.",
   "enablement_policy": {
     "phase_g_enabled_order": [
       "knowledge-os-lint",
@@ -20,14 +20,23 @@
       "HERMES.md mutation without proposal"
     ],
     "model_b_pilot": {
-      "write_jobs_paused": true,
+      "write_jobs_paused": false,
       "lint_allowed": true,
-      "first_cron_to_reenable": "knowledge-os-daily",
+      "enabled_write_jobs": [
+        "knowledge-os-daily"
+      ],
+      "paused_write_jobs": [
+        "knowledge-os-nightly",
+        "knowledge-os-weekly",
+        "knowledge-os-monthly"
+      ],
+      "observed_cycle_completed_at": "2026-07-21T11:47:00Z",
       "reenable_when": [
         "all mutating skills receipt-aware",
         "obsolete VPS trees retired",
         "one scheduled job completes observed Model B cycle"
-      ]
+      ],
+      "exit_criteria_met": true
     }
   },
   "jobs": [
@@ -43,13 +52,12 @@
     {
       "id": "knowledge-os-daily",
       "schedule": "0 7 * * *",
-      "enabled": false,
+      "enabled": true,
       "skills": [
         "wiki-daily",
         "wiki-ingest"
       ],
-      "prompt": "Knowledge OS daily: Load wiki-daily; orient on hot.md + indexes only. Refresh hot.md if focus changed (\u2264150 words). List unprocessed raw/ from last 48h. Compile with wiki-ingest only when needed, status \u2264 CONNECTED/VERIFIED. Update indexes. Append compile-log. Do not set CANONICAL. Do not edit raw/**. Do not treat Business Context or archive/para-migration as SoT.",
-      "paused_reason": "Model B pilot \u2014 write cron paused until Phase 5 exit criteria"
+      "prompt": "Knowledge OS daily: Load wiki-daily; orient on hot.md + indexes only. Refresh hot.md if focus changed (\u2264150 words). List unprocessed raw/ from last 48h. Compile with wiki-ingest only when needed, status \u2264 CONNECTED/VERIFIED. Update indexes. Append compile-log. Do not set CANONICAL. Do not edit raw/**. Do not treat Business Context or archive/para-migration as SoT."
     },
     {
       "id": "knowledge-os-nightly",
