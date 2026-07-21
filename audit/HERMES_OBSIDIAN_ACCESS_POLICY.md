@@ -92,7 +92,13 @@ Do **not** mirror into Business Context as a second SoT.
 - Must **not** create refactor/promote packages
 - Must **not** merge, ingest, archive, or rewrite pages
 
-Write-capable cron (daily/nightly/weekly/monthly) stays **paused** until reconciliation completes and Dylan re-enables.
+Write-capable cron (daily/nightly/weekly/monthly) stays **paused** until Phase 5 exit criteria:
+
+1. All mutating Knowledge OS skills are receipt-aware (`scripts/knowledge_os_mutation.py`)
+2. Obsolete VPS trees retired (`Constitution/`, `Strategy/`, `Playbooks/`, `SOPs/`, …)
+3. One scheduled job completes an observed Model B cycle
+
+**Limited Model B pilot (2026-07-21):** Hermes may perform **explicitly user-directed** writes in approved lanes only, using the receipt wrapper + immediate pull-back cycle. Lint cron may remain enabled.
 
 ---
 

@@ -46,6 +46,19 @@ Entropy reduction: knowledge should get smaller over time. Merge duplicates, spl
 - Do not merge away unresolved contradictions — keep `## Open questions`.
 - Do not touch CANONICAL without approval.
 
+## Mutation contract (mandatory if this run writes)
+
+If this skill run creates or updates any Growth OS file, follow `_mutation-contract.md` end-to-end:
+
+1. `knowledge_os_mutation.py begin --session <id> --skill <name>`
+2. `preflight` / gated `write` / `note` for every touched path
+3. `finalize --run-cycle` — **do not report success** unless finalize returns `"ok": true`
+
+Approved lanes only. No CANONICAL. No governance edits. No existing-raw edits.
+Unattended write cron remains paused (Model B pilot).
+
 ## Verification
+
+If any file was written: receipt finalize `ok: true` and Model B cycle started or deferred with explicit next step.
 
 Net page count for the touched cluster did not increase without justification; indexes consistent; compile-log REFACTOR line present.

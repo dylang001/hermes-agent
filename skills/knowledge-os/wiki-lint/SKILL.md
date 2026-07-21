@@ -60,6 +60,19 @@ Exit code 1 means CRITICAL findings. Reports land in `workspace/drafts/YYYY-MM-D
 - Do not demote CANONICAL.
 - Keep report actionable (paths + one-line fix).
 
+## Mutation contract (mandatory if this run writes)
+
+If this skill run creates or updates any Growth OS file, follow `_mutation-contract.md` end-to-end:
+
+1. `knowledge_os_mutation.py begin --session <id> --skill <name>`
+2. `preflight` / gated `write` / `note` for every touched path
+3. `finalize --run-cycle` — **do not report success** unless finalize returns `"ok": true`
+
+Approved lanes only. No CANONICAL. No governance edits. No existing-raw edits.
+Unattended write cron remains paused (Model B pilot).
+
 ## Verification
+
+If any file was written: receipt finalize `ok: true` and Model B cycle started or deferred with explicit next step.
 
 Report path exists; every CRITICAL has a next action; compile-log LINT line if auto-fixes applied.

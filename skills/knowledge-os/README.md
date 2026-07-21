@@ -15,3 +15,13 @@ Install / sync into `$HERMES_HOME/skills/knowledge-os/` (copy or symlink from th
 | `wiki-research` | External research → ingest |
 
 Policy: `audit/HERMES_OBSIDIAN_ACCESS_POLICY.md` · Runbook: `docs/HERMES_KNOWLEDGE_MAINTENANCE_RUNBOOK.md`
+
+## Model B pilot (2026-07-21)
+
+Mutating skills must use the shared receipt wrapper — see `_mutation-contract.md` and `scripts/knowledge_os_mutation.py`.
+
+| Job | Template enabled | VPS schedule |
+|-----|------------------|--------------|
+| `knowledge-os-lint` | yes (read-only + receipt for reports) | allowed when installed |
+| `knowledge-os-daily/nightly/weekly/monthly` | **paused** | keep disabled until receipt-aware + obsolete-tree retirement + observed cycle |
+

@@ -1,5 +1,5 @@
 {
-  "description": "Hermes Knowledge OS v2 maintenance jobs — Phase G enablement after CRITICAL-clean + manual runs.",
+  "description": "Hermes Knowledge OS v2 maintenance jobs \u2014 write jobs paused for Model B pilot; lint may run.",
   "enablement_policy": {
     "phase_g_enabled_order": [
       "knowledge-os-lint",
@@ -9,7 +9,7 @@
       "knowledge-os-monthly"
     ],
     "manual_run_required_before_schedule": true,
-    "vps_install_blocked_until": "Mac→VPS sync unpause gate",
+    "vps_install_blocked_until": "Phase 5 complete: receipt-aware mutating skills + obsolete-tree retirement + one observed Model B cron cycle",
     "never_auto": [
       "CANONICAL promotion",
       "raw delete or raw edit",
@@ -18,43 +18,72 @@
       "policy / AGENTS.md / SCHEMA.md / Hermes instruction rewrites",
       "file moves without approval-backed migration",
       "HERMES.md mutation without proposal"
-    ]
+    ],
+    "model_b_pilot": {
+      "write_jobs_paused": true,
+      "lint_allowed": true,
+      "first_cron_to_reenable": "knowledge-os-daily",
+      "reenable_when": [
+        "all mutating skills receipt-aware",
+        "obsolete VPS trees retired",
+        "one scheduled job completes observed Model B cycle"
+      ]
+    }
   },
   "jobs": [
     {
       "id": "knowledge-os-lint",
       "schedule": "0 */6 * * *",
       "enabled": true,
-      "skills": ["wiki-lint"],
-      "prompt": "Knowledge OS lint (read-only): Run `python scripts/knowledge_os_lint.py` against Growth OS (Mac path or VPS /opt/hermes/data/obsidian/Growth OS). Summarize CRITICAL/WARN counts. Do not merge, ingest, archive, promote, or rewrite pages. If CRITICAL>0, list paths and stop."
+      "skills": [
+        "wiki-lint"
+      ],
+      "prompt": "Knowledge OS lint (read-only): Run `python scripts/knowledge_os_lint.py` against Growth OS (Mac or VPS /opt/hermes/data/obsidian/Growth OS). Write ONLY a new UTC-timestamped report under workspace/drafts/ via knowledge_os_mutation.py receipt wrapper. Do not merge, ingest, archive, promote, or rewrite brain pages. If CRITICAL>0, list paths and stop."
     },
     {
       "id": "knowledge-os-daily",
       "schedule": "0 7 * * *",
-      "enabled": true,
-      "skills": ["wiki-daily", "wiki-ingest"],
-      "prompt": "Knowledge OS daily: Load wiki-daily; orient on hot.md + indexes only. Refresh hot.md if focus changed (≤150 words). List unprocessed raw/ from last 48h. Compile with wiki-ingest only when needed, status ≤ CONNECTED/VERIFIED. Update indexes. Append compile-log. Do not set CANONICAL. Do not edit raw/**. Do not treat Business Context or archive/para-migration as SoT."
+      "enabled": false,
+      "skills": [
+        "wiki-daily",
+        "wiki-ingest"
+      ],
+      "prompt": "Knowledge OS daily: Load wiki-daily; orient on hot.md + indexes only. Refresh hot.md if focus changed (\u2264150 words). List unprocessed raw/ from last 48h. Compile with wiki-ingest only when needed, status \u2264 CONNECTED/VERIFIED. Update indexes. Append compile-log. Do not set CANONICAL. Do not edit raw/**. Do not treat Business Context or archive/para-migration as SoT.",
+      "paused_reason": "Model B pilot \u2014 write cron paused until Phase 5 exit criteria"
     },
     {
       "id": "knowledge-os-nightly",
       "schedule": "30 2 * * *",
-      "enabled": true,
-      "skills": ["wiki-lint", "wiki-refactor"],
-      "prompt": "Knowledge OS nightly: Run wiki-lint. Auto-fix only safe issues (index rows, missing DRAFT frontmatter defaults). Write findings under workspace/review-queues/ or workspace/drafts/. Propose merges/duplicates/stale; do not CANONICAL, do not delete/archive substantive knowledge, do not edit raw/**, do not rewrite AGENTS/SCHEMA/policies."
+      "enabled": false,
+      "skills": [
+        "wiki-lint",
+        "wiki-refactor"
+      ],
+      "prompt": "Knowledge OS nightly: Run wiki-lint. Auto-fix only safe issues (index rows, missing DRAFT frontmatter defaults). Write findings under workspace/review-queues/ or workspace/drafts/. Propose merges/duplicates/stale; do not CANONICAL, do not delete/archive substantive knowledge, do not edit raw/**, do not rewrite AGENTS/SCHEMA/policies.",
+      "paused_reason": "Model B pilot \u2014 write cron paused until Phase 5 exit criteria"
     },
     {
       "id": "knowledge-os-weekly",
       "schedule": "0 9 * * 1",
-      "enabled": true,
-      "skills": ["wiki-daily", "wiki-lint", "wiki-promote"],
-      "prompt": "Knowledge OS weekly: Orient; lint; list CONNECTED/VERIFIED promote candidates; create/update packages under workspace/promotions/ via wiki-promote but do not apply without Dylan. Do not delete redirect stubs."
+      "enabled": false,
+      "skills": [
+        "wiki-daily",
+        "wiki-lint",
+        "wiki-promote"
+      ],
+      "prompt": "Knowledge OS weekly: Orient; lint; list CONNECTED/VERIFIED promote candidates; create/update packages under workspace/promotions/ via wiki-promote but do not apply without Dylan. Do not delete redirect stubs.",
+      "paused_reason": "Model B pilot \u2014 write cron paused until Phase 5 exit criteria"
     },
     {
       "id": "knowledge-os-monthly",
       "schedule": "0 10 1 * *",
-      "enabled": true,
-      "skills": ["wiki-refactor", "wiki-lint"],
-      "prompt": "Knowledge OS monthly: Lint then propose archive/ontology updates under workspace/review-queues/. No raw deletes. No CANONICAL edits. No autonomous archive of substantive knowledge. No unapproved file moves."
+      "enabled": false,
+      "skills": [
+        "wiki-refactor",
+        "wiki-lint"
+      ],
+      "prompt": "Knowledge OS monthly: Lint then propose archive/ontology updates under workspace/review-queues/. No raw deletes. No CANONICAL edits. No autonomous archive of substantive knowledge. No unapproved file moves.",
+      "paused_reason": "Model B pilot \u2014 write cron paused until Phase 5 exit criteria"
     }
   ]
 }

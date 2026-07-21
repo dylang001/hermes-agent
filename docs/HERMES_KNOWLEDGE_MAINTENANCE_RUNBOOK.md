@@ -26,10 +26,11 @@ Lint script: `scripts/knowledge_os_lint.py` (read-only)
 | On capture / research | Append `raw/` → compile ≤ CONNECTED | `wiki-ingest` / `wiki-research` (**after Phase C**) |
 | After valuable answers | Offer “become knowledge?” | `wiki-query` |
 | Every 6h (cron) | Read-only lint | `knowledge-os-lint` (**enabled**) |
-| Daily (cron) | Ingest nudge + hot refresh | `knowledge-os-daily` (**disabled until Phase C critical-clean**) |
-| Nightly (cron) | Lint + light repair | `knowledge-os-nightly` (**disabled until Phase C**) |
-| Weekly (human 15–20m + agent) | Synthesis, gap analysis, promote review | `wiki-refactor` + Dylan promote |
-| Monthly | Archive entropy reduction | `wiki-refactor` archive pass |
+| Daily (cron) | Ingest nudge + hot refresh | `knowledge-os-daily` (**paused — Model B pilot**) |
+| Nightly (cron) | Lint + light repair | `knowledge-os-nightly` (**paused — Model B pilot**) |
+| Weekly (human 15–20m + agent) | Synthesis, gap analysis, promote review | `wiki-refactor` + Dylan promote (**cron paused**) |
+| Monthly | Archive entropy reduction | `wiki-refactor` archive pass (**cron paused**) |
+| Mutating skill run | Receipt wrapper + Model B cycle | `scripts/knowledge_os_mutation.py` (mandatory) |
 | After substantial work | Propose SOUL/skill diffs | `self-improvement` |
 
 ---
