@@ -840,4 +840,106 @@ Each API call logs `arm=layered|legacy`, token estimates, `retrieve_count`. Scor
 
 ---
 
+## 20. `/compress` vs V2 (2026-07-22)
+
+Manual `/compress` invokes the **upstream Hermes `ContextCompressor`**
+(`agent/conversation_compression.py` → `agent/context_compressor.py`). It:
+
+1. Summarises **ordinary transcript history** only (live / persisted messages).
+2. Does **not** compact V2 pins, Working Memory, or SAFE archives.
+3. Does **not** force-close open mutation epochs.
+4. Does **not** rebuild Working Memory.
+
+So `/compress` is legacy transcript compression. When open-epoch pins dominate
+projected layered context, `/compress` can honestly shrink the transcript while
+leaving the dominant V2 layers untouched — and must say so in its report.
+
+### Concurrent-lock false noop (Orchidea Audit #2)
+
+Session `20260721_194225_6062ac` at ~493,839 tokens / 324 messages:
+
+* 08:20:51 — compression started (winner).
+* 08:21:21 — second `/compress` hit the session lock → returned unchanged.
+* 08:23:00 — winner finished: **324 → 235 messages**, ~493k → ~301k tokens,
+  child tip `20260722_082259_fc4d85`.
+
+The UI reported “No changes” because the **retry/loser** path wrote the
+unchanged snapshot (and bumped `history_version`), racing the winner. Pins on
+this session were only ~9k tokens — **not** the noop cause.
+
+Mitigations shipped locally:
+
+* `_last_compress_skip_reason` (`concurrent_lock` / `already_rotated` / `history_race`)
+* lock-skip paths no longer bump `history_version`
+* TUI `_compress_session_history` passes `force=True`
+* transparent before/after/retained/blocked report
+
+---
+
+## 21. Pin caps + mutation checkpoints (shadow)
+
+Defaults from soak (25 sessions): pin_count p50=6 / p90=30; pin_tok p50≈3.6k /
+p90≈10.1k.
+
+```yaml
+context_engineering_v2:
+  pin_epoch:
+    pin_caps:
+      shadow_enabled: true          # log-only until approved
+      apply_to_dark_store: false    # set true to compact dark PinSet
+      max_pins_per_epoch: 20
+      max_tokens_per_epoch: 12000
+      max_age_api_calls: 50
+      dedupe_identical_tool_results: true
+      fail_open_keep_verify: true
+```
+
+Over-cap pins are compacted into a **MutationCheckpoint** (objective, files,
+actions, unresolved, verification status, evidence needed) — never silent-delete
+VERIFY evidence.
+
+---
+
+## 22. Short-context bypass
+
+```yaml
+context_engineering_v2:
+  short_context_bypass:
+    enabled: true   # after approval — shadow log
+    apply: false    # keep false until shadow report reviewed
+    legacy_token_threshold: 40000
+    require_positive_layered_saving: true  # inspect arm only
+```
+
+Soak replay (712 rows): **33.8%** of calls are &lt;40k legacy tokens and should
+skip WM/layer tax (cron lint / orient). Do **not** treat mutate `savings=0` as
+bypass — mutate is intentionally legacy until promotion gates pass.
+
+---
+
+## 23. Epoch closure runbook (agent guidance)
+
+Required loop while an epoch is open:
+
+1. **Mutate** (write/patch/terminal that changes state).
+2. **VERIFY** with an allowlisted check (`ruff`, `pytest`, `npm test`,
+   `knowledge_os_lint.py`, …) in the **same** open epoch.
+3. On exit_code 0 → epoch closes (`verify_success`); pins clear.
+4. On failure → keep pins; document blockers; do not fabricate close.
+
+`/compress` cannot substitute for VERIFY. If closure is rare, prefer pin-cap
+checkpoints + skill guidance over auto-close.
+
+### Proposed mutate-assemble promotion gates (from soak, not guesses)
+
+Hold mutate on legacy until **all** hold for a soak window:
+
+* open-epoch rate among pin rows &lt; 50% (today ~92–96%)
+* L4 pin p90 &lt; 8k tokens (today ~10k; outliers ≫100k)
+* unique epoch-close rate ≥ 1 close / 10 mutate sessions with VERIFY attempts
+* zero context-loss regressions on inspect replay
+* positive attended-token savings on inspect arm across the soak cohort
+
+---
+
 *P0–P6 shipped opt-in. P7 default-on still gated on soak quality criteria.*

@@ -1498,6 +1498,17 @@ DEFAULT_CONFIG = {
             "persist": True,
             "sync_wm": True,
             "log_filename": "context_engineering_v2_pins_shadow.jsonl",
+            # Shadow pin caps — defaults from soak p50/p90.
+            "pin_caps": {
+                "shadow_enabled": False,
+                "apply_to_dark_store": False,
+                "max_pins_per_epoch": 20,
+                "max_tokens_per_epoch": 12_000,
+                "max_age_api_calls": 50,
+                "dedupe_identical_tool_results": True,
+                "fail_open_keep_verify": True,
+                "log_filename": "context_engineering_v2_pin_caps_shadow.jsonl",
+            },
         },
         # Allowlisted VERIFY command registry (structured classifier).
         # Built-ins cover pytest/ruff/mypy/npm/make test|lint|… and
@@ -1522,6 +1533,14 @@ DEFAULT_CONFIG = {
         "soak": {
             "enabled": False,
             "log_filename": "context_engineering_v2_soak.jsonl",
+        },
+        # Skip WM / layered assemble tax for short sessions (cron lint etc.).
+        "short_context_bypass": {
+            "enabled": False,
+            "apply": False,
+            "legacy_token_threshold": 40_000,
+            "require_positive_layered_saving": True,
+            "log_filename": "context_engineering_v2_short_bypass.jsonl",
         },
     },
 
