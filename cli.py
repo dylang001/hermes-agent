@@ -10068,15 +10068,21 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     compression_state=getattr(
                         self.agent, "context_compressor", None
                     ),
+                    agent=self.agent,
                 )
                 if summary.get("aborted") or summary.get("fallback_used"):
                     icon = "⚠️"
+                elif summary.get("skip_reason"):
+                    icon = "⏳"
                 else:
                     icon = "🗜️" if summary["noop"] else "✅"
-                print(f"  {icon} {summary['headline']}")
-                print(f"     {summary['token_line']}")
-                if summary["note"]:
-                    print(f"     {summary['note']}")
+                lines = summary.get("report_lines") or [
+                    summary["headline"],
+                    summary["token_line"],
+                ]
+                print(f"  {icon} {lines[0]}")
+                for line in lines[1:]:
+                    print(f"     {line}")
 
             except Exception as e:
                 print(f"  ❌ Compression failed: {e}")
