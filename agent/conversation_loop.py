@@ -2449,8 +2449,12 @@ def run_conversation(
                             "error": "First response truncated due to output length limit"
                         }
                 
-                # Track actual token usage from response for context management
-                if hasattr(response, 'usage') and response.usage:
+                # Track actual token usage from response for context management.
+                # Always go through normalize_usage so every provider (OpenCode,
+                # NVIDIA/Nemotron, OpenAI-compatible, native) shares one schema.
+                # Missing usage still counts the request with usage_source=unavailable.
+                _response_has_usage = bool(hasattr(response, "usage") and response.usage)
+                if _response_has_usage:
                     canonical_usage = normalize_usage(
                         response.usage,
                         provider=agent.provider,
@@ -2524,7 +2528,7 @@ def run_conversation(
                     # does not remain latched indefinitely.
                     agent.context_compressor.update_from_response({})
 
-                if hasattr(response, 'usage') and response.usage:
+                if _response_has_usage:
                     # Cache discovered context length after successful call.
                     # Only persist limits confirmed by the provider (parsed
                     # from the error message), not guessed probe tiers.
@@ -2665,6 +2669,33 @@ def run_conversation(
                                 "Token persistence failed (session=%s, tokens=%d): %s",
                                 agent.session_id, total_tokens, e,
                             )
+
+                    # Sanitized universal telemetry (nulls for omitted fields).
+                    try:
+                        from agent.usage_pricing import build_usage_telemetry_record
+
+                        _telemetry = build_usage_telemetry_record(
+                            canonical_usage,
+                            provider=agent.provider,
+                            model=agent.model,
+                            request_id=getattr(response, "id", None),
+                            session_id=agent.session_id,
+                            latency_ms=round(float(api_duration) * 1000.0, 1)
+                            if api_duration is not None
+                            else None,
+                            cost=cost_result.amount_usd,
+                            cost_status=cost_result.status,
+                            context_window_tokens=getattr(
+                                agent.context_compressor, "context_length", None
+                            ),
+                            context_used_tokens=prompt_tokens,
+                        )
+                        logger.info(
+                            "usage_telemetry %s",
+                            json.dumps(_telemetry, ensure_ascii=False, default=str),
+                        )
+                    except Exception:
+                        pass
                     
                     if agent.verbose_logging:
                         logging.debug(f"Token usage: prompt={usage_dict['prompt_tokens']:,}, completion={usage_dict['completion_tokens']:,}, total={usage_dict['total_tokens']:,}")
@@ -2690,6 +2721,66 @@ def run_conversation(
                             f"{cached:,}/{prompt:,} tokens "
                             f"({hit_pct:.0f}% hit, {written:,} written)"
                         )
+                else:
+                    # Provider returned no usage object — still count the
+                    # request so Nemotron/OpenCode/custom endpoints cannot
+                    # silently bypass shared monitoring.
+                    from agent.usage_pricing import (
+                        CanonicalUsage,
+                        build_usage_telemetry_record,
+                    )
+
+                    agent.session_api_calls += 1
+                    _empty_usage = CanonicalUsage(
+                        usage_source="unavailable",
+                        usage_confidence="none",
+                    )
+                    if agent._session_db and agent.session_id:
+                        try:
+                            if not agent._session_db_created:
+                                agent._ensure_db_session()
+                            agent._session_db.update_token_counts(
+                                agent.session_id,
+                                input_tokens=0,
+                                output_tokens=0,
+                                cache_read_tokens=0,
+                                cache_write_tokens=0,
+                                reasoning_tokens=0,
+                                estimated_cost_usd=None,
+                                cost_status="unknown",
+                                cost_source="none",
+                                billing_provider=agent.provider,
+                                billing_base_url=agent.base_url,
+                                billing_mode=None,
+                                model=agent.model,
+                                api_call_count=1,
+                            )
+                        except Exception as e:
+                            logger.debug(
+                                "Token persistence failed for usage-less response "
+                                "(session=%s): %s",
+                                agent.session_id,
+                                e,
+                            )
+                    try:
+                        _telemetry = build_usage_telemetry_record(
+                            _empty_usage,
+                            provider=agent.provider,
+                            model=agent.model,
+                            request_id=getattr(response, "id", None),
+                            session_id=agent.session_id,
+                            latency_ms=round(float(api_duration) * 1000.0, 1)
+                            if api_duration is not None
+                            else None,
+                            cost=None,
+                            cost_status="unknown",
+                        )
+                        logger.info(
+                            "usage_telemetry %s",
+                            json.dumps(_telemetry, ensure_ascii=False, default=str),
+                        )
+                    except Exception:
+                        pass
                 
                 _retry.has_retried_429 = False  # Reset on success
                 # Note: don't clear the retry buffer here — an "API call

@@ -2377,20 +2377,40 @@ class AIAgent:
         return extract_api_error_context(error)
 
     def _usage_summary_for_api_request_hook(self, response: Any) -> Optional[Dict[str, Any]]:
-        """Token buckets for ``post_api_request`` plugins (no raw ``response`` object)."""
+        """Token buckets for ``post_api_request`` plugins (no raw ``response`` object).
+
+        Uses the shared canonical telemetry shape so every provider — OpenCode,
+        NVIDIA NIM/Nemotron, OpenAI-compatible, native Anthropic — emits the
+        same fields. Optional metrics omitted by the provider are ``null``.
+        """
         if response is None:
             return None
         raw_usage = getattr(response, "usage", None)
         if not raw_usage:
+            # Missing usage is logged via conversation_loop usage_telemetry;
+            # keep the hook payload None so legacy plugins treat it as absent.
             return None
-        from dataclasses import asdict
+        from agent.usage_pricing import build_usage_telemetry_record
 
         cu = normalize_usage(raw_usage, provider=self.provider, api_mode=self.api_mode)
-        summary = asdict(cu)
-        summary.pop("raw_usage", None)
-        summary["prompt_tokens"] = cu.prompt_tokens
-        summary["total_tokens"] = cu.total_tokens
-        return summary
+        record = build_usage_telemetry_record(
+            cu,
+            provider=self.provider,
+            model=self.model,
+            request_id=getattr(response, "id", None),
+            session_id=getattr(self, "session_id", None),
+        )
+        # Back-compat aggregate keys expected by existing plugins/tests.
+        # Optional metrics stay null when omitted; required aggregates that
+        # plugins sum remain integers when the provider reported them.
+        record["prompt_tokens"] = cu.prompt_tokens
+        if record["input_tokens"] is None:
+            record["input_tokens"] = cu.input_tokens
+        if record["output_tokens"] is None:
+            record["output_tokens"] = cu.output_tokens
+        # Strip bulky raw payload from hook fan-out.
+        record.pop("raw_usage", None)
+        return record
 
     @staticmethod
     def _hook_payload_max_chars() -> int:

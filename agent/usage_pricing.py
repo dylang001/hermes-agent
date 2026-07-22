@@ -25,6 +25,8 @@ CostSource = Literal[
     "custom_contract",
     "none",
 ]
+UsageSource = Literal["provider_reported", "tokenizer_estimated", "unavailable"]
+UsageConfidence = Literal["high", "medium", "low", "none"]
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,11 @@ class CanonicalUsage:
     reasoning_tokens: int = 0
     request_count: int = 1
     raw_usage: Optional[dict[str, Any]] = None
+    # Which optional/required buckets were actually present on the wire.
+    # Absent fields must be treated as null in telemetry (not silent zeros).
+    reported_fields: frozenset[str] = frozenset()
+    usage_source: UsageSource = "unavailable"
+    usage_confidence: UsageConfidence = "none"
 
     @property
     def prompt_tokens(self) -> int:
@@ -44,6 +51,12 @@ class CanonicalUsage:
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.output_tokens
+
+    def field_or_none(self, name: str) -> Optional[int]:
+        """Return the token field value, or None when the provider omitted it."""
+        if name not in self.reported_fields:
+            return None
+        return int(getattr(self, name))
 
     def __add__(self, other: "CanonicalUsage") -> "CanonicalUsage":
         """Sum two usage buckets (e.g. MoA advisor fan-out + aggregator).
@@ -54,6 +67,19 @@ class CanonicalUsage:
         """
         if not isinstance(other, CanonicalUsage):
             return NotImplemented
+        sources = {self.usage_source, other.usage_source}
+        if sources == {"provider_reported"}:
+            source: UsageSource = "provider_reported"
+            confidence: UsageConfidence = "high"
+        elif "tokenizer_estimated" in sources and "unavailable" not in sources:
+            source = "tokenizer_estimated"
+            confidence = "medium"
+        elif sources == {"unavailable"}:
+            source = "unavailable"
+            confidence = "none"
+        else:
+            source = "tokenizer_estimated" if "tokenizer_estimated" in sources else "provider_reported"
+            confidence = "low"
         return CanonicalUsage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
@@ -62,6 +88,9 @@ class CanonicalUsage:
             reasoning_tokens=self.reasoning_tokens + other.reasoning_tokens,
             request_count=self.request_count + other.request_count,
             raw_usage=None,
+            reported_fields=self.reported_fields | other.reported_fields,
+            usage_source=source,
+            usage_confidence=confidence,
         )
 
 
@@ -895,6 +924,67 @@ def _to_int(value: Any) -> int:
         return 0
 
 
+def _usage_get(response_usage: Any, name: str) -> Any:
+    if response_usage is None:
+        return None
+    if isinstance(response_usage, dict):
+        return response_usage.get(name)
+    return getattr(response_usage, name, None)
+
+
+def _usage_has(response_usage: Any, name: str) -> bool:
+    value = _usage_get(response_usage, name)
+    return value is not None
+
+
+def _usage_to_raw_dict(response_usage: Any) -> Optional[dict[str, Any]]:
+    if response_usage is None:
+        return None
+    if isinstance(response_usage, dict):
+        return dict(response_usage)
+    if hasattr(response_usage, "model_dump"):
+        try:
+            dumped = response_usage.model_dump()
+            if isinstance(dumped, dict):
+                return dumped
+        except Exception:
+            pass
+    raw: dict[str, Any] = {}
+    for key in (
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+        "prompt_cache_hit_tokens",
+        "prompt_cache_miss_tokens",
+        "prompt_tokens_details",
+        "completion_tokens_details",
+        "input_tokens_details",
+        "output_tokens_details",
+    ):
+        if _usage_has(response_usage, key):
+            value = _usage_get(response_usage, key)
+            if hasattr(value, "model_dump"):
+                try:
+                    value = value.model_dump()
+                except Exception:
+                    pass
+            elif hasattr(value, "__dict__") and not isinstance(value, (str, bytes)):
+                try:
+                    value = {
+                        k: getattr(value, k)
+                        for k in dir(value)
+                        if not k.startswith("_") and not callable(getattr(value, k, None))
+                    }
+                except Exception:
+                    value = str(value)
+            raw[key] = value
+    return raw or None
+
+
 def resolve_billing_route(
     model_name: str,
     provider: Optional[str] = None,
@@ -1120,75 +1210,117 @@ def normalize_usage(
     In both Codex and OpenAI modes, input_tokens is derived by subtracting cache
     tokens from the total — the API contract is that input/prompt totals include
     cached tokens and the details object breaks them out.
+
+    Aggregation counters still use ``0`` for omitted optional buckets (safe to
+    sum). Telemetry consumers must use :meth:`CanonicalUsage.field_or_none` /
+    :func:`build_usage_telemetry_record` so omitted cache/reasoning fields are
+    ``null``, never silent zeros.
     """
+    raw_usage = _usage_to_raw_dict(response_usage)
     if not response_usage:
-        return CanonicalUsage()
+        return CanonicalUsage(
+            raw_usage=raw_usage,
+            reported_fields=frozenset(),
+            usage_source="unavailable",
+            usage_confidence="none",
+        )
 
     provider_name = (provider or "").strip().lower()
     mode = (api_mode or "").strip().lower()
+    reported: set[str] = set()
 
     if mode == "anthropic_messages" or provider_name == "anthropic":
-        input_tokens = _to_int(getattr(response_usage, "input_tokens", 0))
-        output_tokens = _to_int(getattr(response_usage, "output_tokens", 0))
-        cache_read_tokens = _to_int(getattr(response_usage, "cache_read_input_tokens", 0))
-        cache_write_tokens = _to_int(getattr(response_usage, "cache_creation_input_tokens", 0))
+        if _usage_has(response_usage, "input_tokens"):
+            reported.add("input_tokens")
+        if _usage_has(response_usage, "output_tokens"):
+            reported.add("output_tokens")
+        input_tokens = _to_int(_usage_get(response_usage, "input_tokens"))
+        output_tokens = _to_int(_usage_get(response_usage, "output_tokens"))
+        cache_read_tokens = 0
+        cache_write_tokens = 0
+        if _usage_has(response_usage, "cache_read_input_tokens"):
+            cache_read_tokens = _to_int(_usage_get(response_usage, "cache_read_input_tokens"))
+            reported.add("cache_read_tokens")
+        if _usage_has(response_usage, "cache_creation_input_tokens"):
+            cache_write_tokens = _to_int(
+                _usage_get(response_usage, "cache_creation_input_tokens")
+            )
+            reported.add("cache_write_tokens")
     elif mode == "codex_responses":
-        input_total = _to_int(getattr(response_usage, "input_tokens", 0))
-        output_tokens = _to_int(getattr(response_usage, "output_tokens", 0))
-        details = getattr(response_usage, "input_tokens_details", None)
-        cache_read_tokens = _to_int(getattr(details, "cached_tokens", 0) if details else 0)
-        cache_write_tokens = _to_int(
-            getattr(details, "cache_creation_tokens", 0) if details else 0
-        )
+        if _usage_has(response_usage, "input_tokens"):
+            reported.add("input_tokens")
+        if _usage_has(response_usage, "output_tokens"):
+            reported.add("output_tokens")
+        input_total = _to_int(_usage_get(response_usage, "input_tokens"))
+        output_tokens = _to_int(_usage_get(response_usage, "output_tokens"))
+        details = _usage_get(response_usage, "input_tokens_details")
+        cache_read_tokens = 0
+        cache_write_tokens = 0
+        if details is not None and _usage_has(details, "cached_tokens"):
+            cache_read_tokens = _to_int(_usage_get(details, "cached_tokens"))
+            reported.add("cache_read_tokens")
+        if details is not None and _usage_has(details, "cache_creation_tokens"):
+            cache_write_tokens = _to_int(_usage_get(details, "cache_creation_tokens"))
+            reported.add("cache_write_tokens")
         input_tokens = max(0, input_total - cache_read_tokens - cache_write_tokens)
     else:
-        prompt_total = _to_int(getattr(response_usage, "prompt_tokens", 0))
-        output_tokens = _to_int(getattr(response_usage, "completion_tokens", 0))
-        details = getattr(response_usage, "prompt_tokens_details", None)
+        prompt_total = _to_int(_usage_get(response_usage, "prompt_tokens"))
+        output_tokens = _to_int(_usage_get(response_usage, "completion_tokens"))
+        if _usage_has(response_usage, "prompt_tokens"):
+            reported.add("input_tokens")
+        if _usage_has(response_usage, "completion_tokens"):
+            reported.add("output_tokens")
+        details = _usage_get(response_usage, "prompt_tokens_details")
         # Primary: OpenAI-style prompt_tokens_details. Fallback: Anthropic-style
         # top-level fields that some OpenAI-compatible proxies (OpenRouter, Cline)
         # expose when routing Claude models — without this
         # fallback, cache writes are undercounted as 0 and cache reads can be
         # missed when the proxy only surfaces them at the top level.
         # Port of cline/cline#10266.
-        cache_read_tokens = _to_int(getattr(details, "cached_tokens", 0) if details else 0)
-        if not cache_read_tokens:
-            cache_read_tokens = _to_int(getattr(response_usage, "cache_read_input_tokens", 0))
-        if not cache_read_tokens:
-            # DeepSeek's native API (api.deepseek.com) reports context-cache
-            # hits as top-level prompt_cache_hit_tokens (+ the complementary
-            # prompt_cache_miss_tokens; prompt_tokens = hit + miss), not the
-            # OpenAI nested shape. Without this, direct DeepSeek sessions
-            # always showed 0 cache-hit tokens (#61871).
-            cache_read_tokens = _to_int(
-                getattr(response_usage, "prompt_cache_hit_tokens", 0)
-            )
-        cache_write_tokens = _to_int(
-            getattr(details, "cache_write_tokens", 0) if details else 0
-        )
-        if not cache_write_tokens:
+        cache_read_tokens = 0
+        cache_write_tokens = 0
+        if details is not None and _usage_has(details, "cached_tokens"):
+            cache_read_tokens = _to_int(_usage_get(details, "cached_tokens"))
+            reported.add("cache_read_tokens")
+        elif _usage_has(response_usage, "cache_read_input_tokens"):
+            cache_read_tokens = _to_int(_usage_get(response_usage, "cache_read_input_tokens"))
+            reported.add("cache_read_tokens")
+        elif _usage_has(response_usage, "prompt_cache_hit_tokens"):
+            # DeepSeek native API: top-level prompt_cache_hit_tokens.
+            cache_read_tokens = _to_int(_usage_get(response_usage, "prompt_cache_hit_tokens"))
+            reported.add("cache_read_tokens")
+        if details is not None and _usage_has(details, "cache_write_tokens"):
+            cache_write_tokens = _to_int(_usage_get(details, "cache_write_tokens"))
+            reported.add("cache_write_tokens")
+        elif _usage_has(response_usage, "cache_creation_input_tokens"):
             cache_write_tokens = _to_int(
-                getattr(response_usage, "cache_creation_input_tokens", 0)
+                _usage_get(response_usage, "cache_creation_input_tokens")
             )
+            reported.add("cache_write_tokens")
         input_tokens = max(0, prompt_total - cache_read_tokens - cache_write_tokens)
 
     reasoning_tokens = 0
     # Responses API shape: output_tokens_details.reasoning_tokens.
     # Chat Completions shape (OpenAI, OpenRouter, DeepSeek, etc.):
-    # completion_tokens_details.reasoning_tokens. Reading only the former
-    # left reasoning_tokens=0 for every chat_completions reasoning model —
-    # hidden thinking was invisible in session accounting even though it
-    # dominates output spend on models like deepseek-v4-flash (measured:
-    # single calls burning 21K reasoning tokens to emit 500 visible tokens).
-    output_details = getattr(response_usage, "output_tokens_details", None)
-    if output_details:
-        reasoning_tokens = _to_int(getattr(output_details, "reasoning_tokens", 0))
-    if not reasoning_tokens:
-        completion_details = getattr(response_usage, "completion_tokens_details", None)
-        if completion_details:
-            reasoning_tokens = _to_int(
-                getattr(completion_details, "reasoning_tokens", 0)
-            )
+    # completion_tokens_details.reasoning_tokens.
+    output_details = _usage_get(response_usage, "output_tokens_details")
+    if output_details is not None and _usage_has(output_details, "reasoning_tokens"):
+        reasoning_tokens = _to_int(_usage_get(output_details, "reasoning_tokens"))
+        reported.add("reasoning_tokens")
+    else:
+        completion_details = _usage_get(response_usage, "completion_tokens_details")
+        if completion_details is not None and _usage_has(
+            completion_details, "reasoning_tokens"
+        ):
+            reasoning_tokens = _to_int(_usage_get(completion_details, "reasoning_tokens"))
+            reported.add("reasoning_tokens")
+
+    if reported:
+        source: UsageSource = "provider_reported"
+        confidence: UsageConfidence = "high"
+    else:
+        source = "unavailable"
+        confidence = "none"
 
     return CanonicalUsage(
         input_tokens=input_tokens,
@@ -1196,7 +1328,87 @@ def normalize_usage(
         cache_read_tokens=cache_read_tokens,
         cache_write_tokens=cache_write_tokens,
         reasoning_tokens=reasoning_tokens,
+        raw_usage=raw_usage,
+        reported_fields=frozenset(reported),
+        usage_source=source,
+        usage_confidence=confidence,
     )
+
+
+def build_usage_telemetry_record(
+    usage: CanonicalUsage,
+    *,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    request_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    task_id: Optional[str] = None,
+    latency_ms: Optional[float] = None,
+    ttft_ms: Optional[float] = None,
+    cost: Optional[Decimal] = None,
+    cost_status: Optional[CostStatus] = None,
+    retries: Optional[int] = None,
+    error: Optional[str] = None,
+    rate_limited: Optional[bool] = None,
+    context_window_tokens: Optional[int] = None,
+    context_used_tokens: Optional[int] = None,
+    compression_event: Optional[str] = None,
+    tool_calls: Optional[int] = None,
+    task_succeeded: Optional[bool] = None,
+) -> dict[str, Any]:
+    """Canonical sanitized telemetry record for every Hermes model invocation.
+
+    Optional provider metrics that were not present on the wire are ``null``,
+    never coerced to zero. Cost stays ``null`` when pricing is unknown.
+    """
+    context_util = None
+    if (
+        context_window_tokens is not None
+        and context_window_tokens > 0
+        and context_used_tokens is not None
+    ):
+        context_util = round(float(context_used_tokens) / float(context_window_tokens), 6)
+
+    cost_value: Optional[float]
+    if cost is None:
+        cost_value = None
+    else:
+        cost_value = float(cost)
+
+    return {
+        "provider": provider,
+        "model": model,
+        "request_id": request_id,
+        "session_id": session_id,
+        "task_id": task_id,
+        "input_tokens": usage.field_or_none("input_tokens"),
+        "output_tokens": usage.field_or_none("output_tokens"),
+        "reasoning_tokens": usage.field_or_none("reasoning_tokens"),
+        "cache_read_tokens": usage.field_or_none("cache_read_tokens"),
+        "cache_write_tokens": usage.field_or_none("cache_write_tokens"),
+        "total_tokens": (
+            usage.total_tokens
+            if ("input_tokens" in usage.reported_fields or "output_tokens" in usage.reported_fields)
+            else None
+        ),
+        "latency_ms": latency_ms,
+        "ttft_ms": ttft_ms,
+        "cost": cost_value,
+        "cost_status": cost_status,
+        "usage_source": usage.usage_source,
+        "usage_confidence": usage.usage_confidence,
+        "retries": retries,
+        "error": error,
+        "rate_limited": rate_limited,
+        "context_window_tokens": context_window_tokens,
+        "context_used_tokens": context_used_tokens,
+        "context_window_utilization": context_util,
+        "compression_event": compression_event,
+        "tool_calls": tool_calls,
+        "task_succeeded": task_succeeded,
+        "request_count": usage.request_count,
+        "raw_usage": usage.raw_usage,
+    }
 
 
 def estimate_usage_cost(
