@@ -284,6 +284,7 @@ export interface SessionCompressResponse {
     headline?: string
     noop?: boolean
     note?: null | string
+    report_lines?: string[]
     token_line?: string
   }
   usage?: Usage
