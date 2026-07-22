@@ -2160,6 +2160,18 @@ def _load_pin_epoch_config() -> Dict[str, Any]:
         "persist": True,
         "sync_wm": True,
         "log_filename": "context_engineering_v2_pins_shadow.jsonl",
+        # Pin caps / expiry — shadow by default. Observed soak (25 sessions):
+        # pin_count p50=6 p90=30; pin_tok p50≈3.6k p90≈10.1k.
+        "pin_caps": {
+            "shadow_enabled": False,
+            "apply_to_dark_store": False,
+            "max_pins_per_epoch": 20,
+            "max_tokens_per_epoch": 12_000,
+            "max_age_api_calls": 50,
+            "dedupe_identical_tool_results": True,
+            "fail_open_keep_verify": True,
+            "log_filename": "context_engineering_v2_pin_caps_shadow.jsonl",
+        },
     }
     try:
         from hermes_cli.config import load_config
@@ -2170,10 +2182,273 @@ def _load_pin_epoch_config() -> Dict[str, Any]:
         if not isinstance(pin, dict):
             return defaults
         out = dict(defaults)
-        out.update({k: pin[k] for k in defaults if k in pin})
+        for k in ("enabled", "persist", "sync_wm", "log_filename"):
+            if k in pin:
+                out[k] = pin[k]
+        caps = pin.get("pin_caps")
+        if isinstance(caps, dict):
+            merged_caps = dict(defaults["pin_caps"])
+            merged_caps.update(caps)
+            out["pin_caps"] = merged_caps
         return out
     except Exception:
         return defaults
+
+
+@dataclass
+class MutationCheckpoint:
+    """Compact durable stand-in for verbose open-epoch pins (shadow/dark)."""
+
+    epoch: int
+    objective: str = ""
+    files_changed: List[str] = field(default_factory=list)
+    actions: List[str] = field(default_factory=list)
+    unresolved: List[str] = field(default_factory=list)
+    verification_status: str = "unverified"
+    evidence_needed: List[str] = field(default_factory=list)
+    compacted_pin_count: int = 0
+    compacted_tokens_est: int = 0
+    created_at_api_call: int = 0
+    kept_pin_ids: List[str] = field(default_factory=list)
+    schema_version: int = 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+def checkpoint_meta_key(session_id: str) -> str:
+    return f"context_mutation_checkpoint_v2:{session_id}"
+
+
+def _pin_priority(pin: PinnedEvidence) -> int:
+    """Higher = keep longer when capping. VERIFY evidence always wins."""
+    name = (pin.tool_name or "").lower()
+    if pin.verify_outcome == "success" or pin.evidence_class == EvidenceClass.VERIFY.value:
+        return 100
+    if pin.verify_outcome == "failure":
+        return 95
+    if name in {"write_file", "patch", "delete_file"}:
+        return 80
+    if name == "terminal":
+        return 50
+    if name.startswith("mcp__"):
+        return 20
+    return 40
+
+
+def build_mutation_checkpoint(
+    pins: PinSet,
+    *,
+    working_memory: Optional[WorkingMemory] = None,
+    api_call_index: int = 0,
+    compacted: Sequence[PinnedEvidence] = (),
+    kept: Sequence[PinnedEvidence] = (),
+) -> MutationCheckpoint:
+    compacted_list = list(compacted)
+    kept_list = list(kept)
+    files: List[str] = []
+    actions: List[str] = []
+    for pin in compacted_list:
+        if pin.path and pin.path not in files:
+            files.append(pin.path)
+        label = pin.tool_name or "tool"
+        if pin.command:
+            label = f"{label}: {pin.command[:120]}"
+        actions.append(label)
+    objective = ""
+    unresolved: List[str] = []
+    if working_memory is not None:
+        objective = str(working_memory.objective or "")
+        unresolved = list(working_memory.blockers or [])[:8]
+        for af in working_memory.active_files or []:
+            path = str((af or {}).get("path") or "")
+            if path and path not in files:
+                files.append(path)
+    verify_status = "unverified"
+    if any(p.verify_outcome == "success" for p in kept_list):
+        verify_status = "verify_success_present"
+    elif any(p.verify_outcome == "failure" for p in kept_list + compacted_list):
+        verify_status = "verify_failed"
+    evidence_needed = []
+    if verify_status != "verify_success_present" and pins.open_epoch > 0:
+        evidence_needed.append(
+            "Run the relevant lint/test/check and associate VERIFY with the open epoch"
+        )
+    return MutationCheckpoint(
+        epoch=int(pins.open_epoch or pins.last_closed_epoch or 0),
+        objective=objective,
+        files_changed=files[:24],
+        actions=actions[:40],
+        unresolved=unresolved,
+        verification_status=verify_status,
+        evidence_needed=evidence_needed,
+        compacted_pin_count=len(compacted_list),
+        compacted_tokens_est=sum(int(p.tokens_est) for p in compacted_list),
+        created_at_api_call=int(api_call_index),
+        kept_pin_ids=[p.tool_call_id for p in kept_list if p.tool_call_id],
+    )
+
+
+def shadow_apply_pin_caps(
+    pins: PinSet,
+    *,
+    api_call_index: int = 0,
+    working_memory: Optional[WorkingMemory] = None,
+    caps: Optional[Mapping[str, Any]] = None,
+) -> Tuple[PinSet, Optional[MutationCheckpoint], Dict[str, Any]]:
+    """Propose (and optionally apply) pin compaction under per-epoch caps.
+
+    Never drops the last VERIFY success/failure evidence when
+    ``fail_open_keep_verify`` is true. Returns ``(pins, checkpoint, audit)``.
+    """
+    cfg = dict(caps or {})
+    max_pins = int(cfg.get("max_pins_per_epoch") or 20)
+    max_tokens = int(cfg.get("max_tokens_per_epoch") or 12_000)
+    max_age = int(cfg.get("max_age_api_calls") or 50)
+    dedupe = bool(cfg.get("dedupe_identical_tool_results", True))
+    keep_verify = bool(cfg.get("fail_open_keep_verify", True))
+    apply = bool(cfg.get("apply_to_dark_store", False))
+
+    audit: Dict[str, Any] = {
+        "triggered": False,
+        "reasons": [],
+        "before_pin_count": len(pins.pins),
+        "before_tokens": pins.pinned_tokens,
+        "deduped": 0,
+        "aged_out": 0,
+        "compacted": 0,
+        "applied": False,
+    }
+    if pins.open_epoch <= 0 or not pins.pins:
+        return pins, None, audit
+
+    working = list(pins.pins)
+
+    # Deduplicate identical tool dumps (same tool + path/command + token size).
+    if dedupe and working:
+        seen: Dict[str, PinnedEvidence] = {}
+        deduped: List[PinnedEvidence] = []
+        for pin in working:
+            key = f"{pin.tool_name}|{pin.path}|{pin.command[:80]}|{pin.tokens_est}"
+            prev = seen.get(key)
+            if prev is None:
+                seen[key] = pin
+                deduped.append(pin)
+            else:
+                audit["deduped"] += 1
+                # Keep the newer pin (higher api_call / message index).
+                if int(pin.pinned_at_api_call) >= int(prev.pinned_at_api_call):
+                    deduped = [p for p in deduped if p is not prev]
+                    seen[key] = pin
+                    deduped.append(pin)
+        working = deduped
+
+    # Age-based candidates (still checkpointed, never silent-drop verify).
+    aged: List[PinnedEvidence] = []
+    fresh: List[PinnedEvidence] = []
+    for pin in working:
+        age = int(api_call_index) - int(pin.pinned_at_api_call or 0)
+        if max_age > 0 and age > max_age and not (
+            keep_verify
+            and (
+                pin.verify_outcome in {"success", "failure"}
+                or pin.evidence_class == EvidenceClass.VERIFY.value
+            )
+        ):
+            aged.append(pin)
+            audit["aged_out"] += 1
+        else:
+            fresh.append(pin)
+    working = fresh
+
+    over_count = len(working) > max_pins
+    over_tokens = sum(int(p.tokens_est) for p in working) > max_tokens
+    if over_count:
+        audit["reasons"].append(f"pin_count>{max_pins}")
+    if over_tokens:
+        audit["reasons"].append(f"pin_tokens>{max_tokens}")
+    if audit["aged_out"]:
+        audit["reasons"].append(f"age>{max_age}_api_calls")
+    if audit["deduped"]:
+        audit["reasons"].append("deduped_identical")
+
+    if not (over_count or over_tokens or aged or audit["deduped"]):
+        return pins, None, audit
+
+    audit["triggered"] = True
+    # Sort ascending priority then oldest first — compact from the front.
+    ranked = sorted(
+        working,
+        key=lambda p: (_pin_priority(p), int(p.pinned_at_api_call or 0), int(p.tokens_est or 0)),
+    )
+    keep: List[PinnedEvidence] = []
+    compact: List[PinnedEvidence] = list(aged)
+
+    # Always preserve verify evidence + highest-priority remainder under caps.
+    verify_pins = [
+        p
+        for p in ranked
+        if keep_verify
+        and (
+            p.verify_outcome in {"success", "failure"}
+            or p.evidence_class == EvidenceClass.VERIFY.value
+        )
+    ]
+    non_verify = [p for p in ranked if p not in verify_pins]
+    keep.extend(verify_pins)
+
+    token_budget = max_tokens
+    keep_tokens = sum(int(p.tokens_est) for p in keep)
+    for pin in reversed(non_verify):  # prefer newest/highest among non-verify
+        if len(keep) >= max_pins:
+            compact.append(pin)
+            continue
+        if keep_tokens + int(pin.tokens_est) > token_budget and keep:
+            compact.append(pin)
+            continue
+        keep.append(pin)
+        keep_tokens += int(pin.tokens_est)
+
+    # Anything left in non_verify not kept goes to compact.
+    keep_ids = {p.tool_call_id for p in keep}
+    for pin in non_verify:
+        if pin.tool_call_id not in keep_ids and pin not in compact:
+            compact.append(pin)
+
+    audit["compacted"] = len(compact)
+    checkpoint = build_mutation_checkpoint(
+        pins,
+        working_memory=working_memory,
+        api_call_index=api_call_index,
+        compacted=compact,
+        kept=keep,
+    )
+
+    if apply and (keep or compact):
+        new_pins = PinSet(
+            open_epoch=pins.open_epoch,
+            mutation_epoch_counter=pins.mutation_epoch_counter,
+            pins=keep,
+            last_closed_epoch=pins.last_closed_epoch,
+            last_close_reason=pins.last_close_reason,
+            last_updated_api_call=int(api_call_index),
+            schema_version=pins.schema_version,
+        )
+        audit["applied"] = True
+        audit["after_pin_count"] = len(new_pins.pins)
+        audit["after_tokens"] = new_pins.pinned_tokens
+        return new_pins, checkpoint, audit
+
+    audit["after_pin_count"] = len(keep)
+    audit["after_tokens"] = sum(int(p.tokens_est) for p in keep)
+    return pins, checkpoint, audit
+
+
+def pin_caps_shadow_log_path(log_filename: str | None = None) -> Path:
+    from hermes_constants import get_hermes_home
+
+    name = log_filename or "context_engineering_v2_pin_caps_shadow.jsonl"
+    return get_hermes_home() / "logs" / name
 
 
 def pin_shadow_log_path(log_filename: str | None = None) -> Path:
@@ -2204,6 +2479,47 @@ def maybe_run_pin_epoch_shadow(
             api_call_index=api_call_index,
             working_memory=working_memory,
         )
+        cap_audit: Dict[str, Any] = {}
+        checkpoint = None
+        caps_cfg = cfg.get("pin_caps") if isinstance(cfg.get("pin_caps"), dict) else {}
+        if caps_cfg.get("shadow_enabled"):
+            pins, checkpoint, cap_audit = shadow_apply_pin_caps(
+                pins,
+                api_call_index=api_call_index,
+                working_memory=working_memory,
+                caps=caps_cfg,
+            )
+            if checkpoint is not None:
+                try:
+                    path = pin_caps_shadow_log_path(
+                        str(caps_cfg.get("log_filename") or "")
+                    )
+                    write_shadow_profile_record(
+                        path,
+                        {
+                            "ts": time.time(),
+                            "session_id": session_id or "",
+                            "api_call_index": api_call_index,
+                            "checkpoint": checkpoint.to_dict(),
+                            "audit": cap_audit,
+                            "shadow": True,
+                            "mutates_prompt": False,
+                        },
+                    )
+                except Exception:
+                    pass
+                if (
+                    caps_cfg.get("apply_to_dark_store")
+                    and session_db is not None
+                    and session_id
+                ):
+                    try:
+                        session_db.set_meta(
+                            checkpoint_meta_key(session_id),
+                            json.dumps(checkpoint.to_dict(), ensure_ascii=False),
+                        )
+                    except Exception:
+                        pass
         wm_out = working_memory
         if cfg.get("sync_wm", True) and working_memory is not None:
             wm_out = sync_working_memory_with_pins(working_memory, pins)
@@ -2258,6 +2574,8 @@ def maybe_run_pin_epoch_shadow(
             "verify_command_samples": verify_cmds,
             "verify_outcome_counts": verify_outcomes,
             "verify_classified_count": sum(verify_outcomes.values()),
+            "pin_caps_audit": cap_audit or None,
+            "mutation_checkpoint": checkpoint.to_dict() if checkpoint else None,
             "mutates_prompt": False,
             "shadow": True,
         }
@@ -2269,6 +2587,115 @@ def maybe_run_pin_epoch_shadow(
     except Exception:
         logger.debug("context_engineering_v2 pin_epoch shadow failed", exc_info=True)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Short-context bypass — skip WM/layer tax when savings cannot pay for it
+# ---------------------------------------------------------------------------
+
+_DEFAULT_SHORT_BYPASS_THRESHOLD = 40_000
+
+
+def _load_short_context_bypass_config() -> Dict[str, Any]:
+    defaults = {
+        "enabled": False,
+        # When apply is false, only log eligibility (shadow). When true, skip
+        # WM/layer work for matching calls.
+        "apply": False,
+        "legacy_token_threshold": _DEFAULT_SHORT_BYPASS_THRESHOLD,
+        "require_positive_layered_saving": True,
+        "log_filename": "context_engineering_v2_short_bypass.jsonl",
+    }
+    try:
+        from hermes_cli.config import load_config
+
+        cfg = load_config() or {}
+        section = cfg.get("context_engineering_v2") or {}
+        bypass = section.get("short_context_bypass") or {}
+        if not isinstance(bypass, dict):
+            return defaults
+        out = dict(defaults)
+        out.update({k: bypass[k] for k in defaults if k in bypass})
+        return out
+    except Exception:
+        return defaults
+
+
+def short_bypass_log_path(log_filename: str | None = None) -> Path:
+    from hermes_constants import get_hermes_home
+
+    name = log_filename or "context_engineering_v2_short_bypass.jsonl"
+    return get_hermes_home() / "logs" / name
+
+
+def should_bypass_v2_layers(
+    *,
+    legacy_tokens_est: int,
+    layered_tokens_est: Optional[int] = None,
+    step: Optional[str] = None,
+    config: Optional[Mapping[str, Any]] = None,
+) -> Tuple[bool, str]:
+    """Return ``(eligible, reason)`` for short / non-positive-saving sessions.
+
+    Eligibility is independent of ``apply``. Callers that only want shadow
+    logging should ignore the bool when ``apply`` is false and still run V2.
+    ``layered_saving<=0`` only applies when ``step=="inspect"``.
+    """
+    cfg = dict(config) if config is not None else _load_short_context_bypass_config()
+    if not cfg.get("enabled"):
+        return False, ""
+    threshold = int(cfg.get("legacy_token_threshold") or _DEFAULT_SHORT_BYPASS_THRESHOLD)
+    if int(legacy_tokens_est) < threshold:
+        return True, f"legacy_tokens<{threshold}"
+    if (
+        cfg.get("require_positive_layered_saving", True)
+        and layered_tokens_est is not None
+        and (step or "") == "inspect"
+    ):
+        if int(layered_tokens_est) >= int(legacy_tokens_est):
+            return True, "inspect_layered_saving<=0"
+    return False, ""
+
+
+def short_context_bypass_should_apply(
+    config: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    """True when eligibility should actually skip WM/layer work."""
+    cfg = dict(config) if config is not None else _load_short_context_bypass_config()
+    return bool(cfg.get("enabled")) and bool(cfg.get("apply"))
+
+
+def maybe_log_short_context_bypass(
+    *,
+    session_id: str,
+    api_call_index: int,
+    reason: str,
+    legacy_tokens_est: int,
+    layered_tokens_est: Optional[int] = None,
+    skipped: Sequence[str] = (),
+) -> None:
+    try:
+        cfg = _load_short_context_bypass_config()
+        if not cfg.get("enabled") and not reason:
+            return
+        path = short_bypass_log_path(str(cfg.get("log_filename") or ""))
+        write_shadow_profile_record(
+            path,
+            {
+                "ts": time.time(),
+                "session_id": session_id or "",
+                "api_call_index": api_call_index,
+                "reason": reason,
+                "legacy_tokens_est": int(legacy_tokens_est),
+                "layered_tokens_est": (
+                    int(layered_tokens_est) if layered_tokens_est is not None else None
+                ),
+                "skipped": list(skipped),
+                "mutates_prompt": False,
+            },
+        )
+    except Exception:
+        logger.debug("short_context_bypass log failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

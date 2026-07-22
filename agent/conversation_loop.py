@@ -1150,131 +1150,210 @@ def run_conversation(
         )
         total_chars = approx_tokens * 4
 
-        # Context Engineering V2 P1 — shadow profiler (log-only). Never mutates
-        # api_messages / tools. Gated by context_engineering_v2.shadow_profiler.enabled.
-        try:
-            from agent.context_engineering_v2 import maybe_log_shadow_profile
-
-            maybe_log_shadow_profile(
-                api_messages=api_messages,
-                tools=getattr(agent, "tools", None),
-                session_id=str(getattr(agent, "session_id", "") or ""),
-                api_call_index=int(api_call_count),
-            )
-        except Exception:
-            pass
-
-        # Context Engineering V2 P2 — Working Memory dark store. Persist/restore
-        # only; assemble stub still returns legacy (fail-open). Never mutates
-        # api_messages. Gated by context_engineering_v2.working_memory.enabled.
-        try:
-            from agent.context_engineering_v2 import maybe_touch_working_memory
-
-            _wm = maybe_touch_working_memory(
-                api_messages=api_messages,
-                session_id=str(getattr(agent, "session_id", "") or ""),
-                api_call_index=int(api_call_count),
-                session_db=getattr(agent, "_session_db", None),
-            )
-            if _wm is not None:
-                agent._working_memory_v2 = _wm
-        except Exception:
-            pass
-
-        # Context Engineering V2 P4 — MUTATING pin/unpin epoch (dark). Persist
-        # pin set + sync WM.mutation_epoch; never changes wire prompt.
-        # Gated by context_engineering_v2.pin_epoch.enabled.
-        try:
-            from agent.context_engineering_v2 import maybe_run_pin_epoch_shadow
-
-            _pins = maybe_run_pin_epoch_shadow(
-                api_messages=api_messages,
-                session_id=str(getattr(agent, "session_id", "") or ""),
-                api_call_index=int(api_call_count),
-                session_db=getattr(agent, "_session_db", None),
-                working_memory=getattr(agent, "_working_memory_v2", None),
-            )
-            if _pins is not None:
-                agent._pin_epoch_v2 = _pins.pop("_pin_set", None)
-                agent._pin_epoch_v2_shadow = _pins
-                _wm_pin = _pins.pop("_working_memory", None)
-                if _wm_pin is not None:
-                    agent._working_memory_v2 = _wm_pin
-        except Exception:
-            pass
-
-        # Context Engineering V2 P3 — SAFE summarise→archive shadow. Writes
-        # archive blobs + index and logs real-summary attended estimates.
-        # Never replaces live tool bodies. Gated by
-        # context_engineering_v2.safe_archive.shadow_enabled.
-        try:
-            from agent.context_engineering_v2 import maybe_run_safe_archive_shadow
-
-            _arch = maybe_run_safe_archive_shadow(
-                api_messages=api_messages,
-                session_id=str(getattr(agent, "session_id", "") or ""),
-                api_call_index=int(api_call_count),
-                session_db=getattr(agent, "_session_db", None),
-                tools=getattr(agent, "tools", None),
-                working_memory=getattr(agent, "_working_memory_v2", None),
-            )
-            if _arch is not None:
-                agent._safe_archive_v2_shadow = _arch
-                _wm2 = _arch.pop("_working_memory", None)
-                if _wm2 is not None:
-                    agent._working_memory_v2 = _wm2
-        except Exception:
-            pass
-
-        # Context Engineering V2 P5/P6 — layered assemble (inspect) + retrieve
-        # inject / soak. Rewrites the per-call api_messages copy only; stored
-        # transcript unchanged. Fail-open to legacy on any error.
-        # Gated by context_engineering_v2.assemble / retrieve / soak.
+        # Context Engineering V2 — short-context bypass (skip WM/layer tax).
+        # Shadow mode (apply=false): log eligibility only; still run V2.
+        _v2_bypass = False
+        _v2_bypass_reason = ""
         try:
             from agent.context_engineering_v2 import (
-                archives_by_tool_call_id_from_db,
-                maybe_apply_retrieves_legacy_arm,
-                maybe_assemble_layered_api_messages,
+                maybe_log_short_context_bypass,
+                short_context_bypass_should_apply,
+                should_bypass_v2_layers,
             )
 
-            _sid = str(getattr(agent, "session_id", "") or "")
-            _sdb = getattr(agent, "_session_db", None)
-            _arch_map = archives_by_tool_call_id_from_db(_sid, session_db=_sdb)
-            _asm = maybe_assemble_layered_api_messages(
-                api_messages=api_messages,
-                working_memory=getattr(agent, "_working_memory_v2", None),
-                pin_set=getattr(agent, "_pin_epoch_v2", None),
-                archives_by_tool_call_id=_arch_map,
-                session_id=_sid,
-                api_call_index=int(api_call_count),
-                session_db=_sdb,
+            _eligible, _v2_bypass_reason = should_bypass_v2_layers(
+                legacy_tokens_est=int(approx_tokens or 0)
             )
-            if _asm is not None and _asm.get("messages"):
-                api_messages = _asm["messages"]
-                agent._assemble_v2 = {k: v for k, v in _asm.items() if k != "messages"}
-            else:
-                # Legacy arm: still inject pending retrieves + soak log (P6).
-                api_messages, _leg_meta = maybe_apply_retrieves_legacy_arm(
+            if _eligible:
+                maybe_log_short_context_bypass(
+                    session_id=str(getattr(agent, "session_id", "") or ""),
+                    api_call_index=int(api_call_count),
+                    reason=_v2_bypass_reason,
+                    legacy_tokens_est=int(approx_tokens or 0),
+                    skipped=(
+                        "shadow_profiler",
+                        "working_memory",
+                        "pin_epoch",
+                        "safe_archive",
+                        "assemble",
+                    )
+                    if short_context_bypass_should_apply()
+                    else ("shadow_log_only",),
+                )
+                agent._context_v2_bypass = {
+                    "reason": _v2_bypass_reason,
+                    "legacy_tokens_est": int(approx_tokens or 0),
+                    "applied": short_context_bypass_should_apply(),
+                }
+            _v2_bypass = bool(_eligible and short_context_bypass_should_apply())
+        except Exception:
+            _v2_bypass = False
+
+        if not _v2_bypass:
+            # Context Engineering V2 P1 — shadow profiler (log-only). Never mutates
+            # api_messages / tools. Gated by context_engineering_v2.shadow_profiler.enabled.
+            try:
+                from agent.context_engineering_v2 import maybe_log_shadow_profile
+
+                maybe_log_shadow_profile(
                     api_messages=api_messages,
+                    tools=getattr(agent, "tools", None),
+                    session_id=str(getattr(agent, "session_id", "") or ""),
+                    api_call_index=int(api_call_count),
+                )
+            except Exception:
+                pass
+
+            # Context Engineering V2 P2 — Working Memory dark store. Persist/restore
+            # only; assemble stub still returns legacy (fail-open). Never mutates
+            # api_messages. Gated by context_engineering_v2.working_memory.enabled.
+            try:
+                from agent.context_engineering_v2 import maybe_touch_working_memory
+
+                _wm = maybe_touch_working_memory(
+                    api_messages=api_messages,
+                    session_id=str(getattr(agent, "session_id", "") or ""),
+                    api_call_index=int(api_call_count),
+                    session_db=getattr(agent, "_session_db", None),
+                )
+                if _wm is not None:
+                    agent._working_memory_v2 = _wm
+            except Exception:
+                pass
+
+            # Context Engineering V2 P4 — MUTATING pin/unpin epoch (dark). Persist
+            # pin set + sync WM.mutation_epoch; never changes wire prompt.
+            # Gated by context_engineering_v2.pin_epoch.enabled.
+            try:
+                from agent.context_engineering_v2 import maybe_run_pin_epoch_shadow
+
+                _pins = maybe_run_pin_epoch_shadow(
+                    api_messages=api_messages,
+                    session_id=str(getattr(agent, "session_id", "") or ""),
+                    api_call_index=int(api_call_count),
+                    session_db=getattr(agent, "_session_db", None),
+                    working_memory=getattr(agent, "_working_memory_v2", None),
+                )
+                if _pins is not None:
+                    agent._pin_epoch_v2 = _pins.pop("_pin_set", None)
+                    agent._pin_epoch_v2_shadow = _pins
+                    _wm_pin = _pins.pop("_working_memory", None)
+                    if _wm_pin is not None:
+                        agent._working_memory_v2 = _wm_pin
+            except Exception:
+                pass
+
+            # Context Engineering V2 P3 — SAFE summarise→archive shadow. Writes
+            # archive blobs + index and logs real-summary attended estimates.
+            # Never replaces live tool bodies. Gated by
+            # context_engineering_v2.safe_archive.shadow_enabled.
+            try:
+                from agent.context_engineering_v2 import maybe_run_safe_archive_shadow
+
+                _arch = maybe_run_safe_archive_shadow(
+                    api_messages=api_messages,
+                    session_id=str(getattr(agent, "session_id", "") or ""),
+                    api_call_index=int(api_call_count),
+                    session_db=getattr(agent, "_session_db", None),
+                    tools=getattr(agent, "tools", None),
+                    working_memory=getattr(agent, "_working_memory_v2", None),
+                )
+                if _arch is not None:
+                    agent._safe_archive_v2_shadow = _arch
+                    _wm2 = _arch.pop("_working_memory", None)
+                    if _wm2 is not None:
+                        agent._working_memory_v2 = _wm2
+            except Exception:
+                pass
+
+            # Context Engineering V2 P5/P6 — layered assemble (inspect) + retrieve
+            # inject / soak. Rewrites the per-call api_messages copy only; stored
+            # transcript unchanged. Fail-open to legacy on any error.
+            # Gated by context_engineering_v2.assemble / retrieve / soak.
+            try:
+                from agent.context_engineering_v2 import (
+                    archives_by_tool_call_id_from_db,
+                    maybe_apply_retrieves_legacy_arm,
+                    maybe_assemble_layered_api_messages,
+                )
+
+                _sid = str(getattr(agent, "session_id", "") or "")
+                _sdb = getattr(agent, "_session_db", None)
+                _arch_map = archives_by_tool_call_id_from_db(_sid, session_db=_sdb)
+                _asm = maybe_assemble_layered_api_messages(
+                    api_messages=api_messages,
+                    working_memory=getattr(agent, "_working_memory_v2", None),
+                    pin_set=getattr(agent, "_pin_epoch_v2", None),
+                    archives_by_tool_call_id=_arch_map,
                     session_id=_sid,
                     api_call_index=int(api_call_count),
                     session_db=_sdb,
-                    pin_set=getattr(agent, "_pin_epoch_v2", None),
                 )
-                agent._assemble_v2 = _leg_meta
-            # Re-sanitize after rewrite / retrieve inject.
-            api_messages = agent._sanitize_api_messages(api_messages)
-            api_messages = agent._drop_thinking_only_and_merge_users(
-                api_messages,
-                drop_codex_reasoning_items=agent.api_mode != "codex_responses",
-            )
-            approx_tokens = estimate_messages_tokens_rough(api_messages)
-            request_pressure_tokens = approx_tokens + (
-                _estimate_tools_tokens_rough(agent.tools) if agent.tools else 0
-            )
-            total_chars = approx_tokens * 4
-        except Exception:
-            pass
+                if _asm is not None and _asm.get("messages"):
+                    # Second-chance bypass when layered would not save tokens.
+                    try:
+                        from agent.context_engineering_v2 import (
+                            maybe_log_short_context_bypass,
+                            should_bypass_v2_layers,
+                        )
+
+                        _b2, _r2 = should_bypass_v2_layers(
+                            legacy_tokens_est=int(_asm.get("legacy_tokens_est") or 0),
+                            layered_tokens_est=int(_asm.get("layered_tokens_est") or 0),
+                            step=str(_asm.get("step") or "inspect"),
+                        )
+                        from agent.context_engineering_v2 import (
+                            short_context_bypass_should_apply,
+                        )
+
+                        if _b2 and short_context_bypass_should_apply():
+                            maybe_log_short_context_bypass(
+                                session_id=_sid,
+                                api_call_index=int(api_call_count),
+                                reason=_r2,
+                                legacy_tokens_est=int(_asm.get("legacy_tokens_est") or 0),
+                                layered_tokens_est=int(_asm.get("layered_tokens_est") or 0),
+                                skipped=("assemble_apply",),
+                            )
+                            agent._assemble_v2 = {
+                                "bypassed": True,
+                                "reason": _r2,
+                                "legacy_tokens_est": _asm.get("legacy_tokens_est"),
+                                "layered_tokens_est": _asm.get("layered_tokens_est"),
+                            }
+                        else:
+                            api_messages = _asm["messages"]
+                            agent._assemble_v2 = {
+                                k: v for k, v in _asm.items() if k != "messages"
+                            }
+                    except Exception:
+                        api_messages = _asm["messages"]
+                        agent._assemble_v2 = {
+                            k: v for k, v in _asm.items() if k != "messages"
+                        }
+                else:
+                    # Legacy arm: still inject pending retrieves + soak log (P6).
+                    api_messages, _leg_meta = maybe_apply_retrieves_legacy_arm(
+                        api_messages=api_messages,
+                        session_id=_sid,
+                        api_call_index=int(api_call_count),
+                        session_db=_sdb,
+                        pin_set=getattr(agent, "_pin_epoch_v2", None),
+                    )
+                    agent._assemble_v2 = _leg_meta
+                # Re-sanitize after rewrite / retrieve inject.
+                api_messages = agent._sanitize_api_messages(api_messages)
+                api_messages = agent._drop_thinking_only_and_merge_users(
+                    api_messages,
+                    drop_codex_reasoning_items=agent.api_mode != "codex_responses",
+                )
+                approx_tokens = estimate_messages_tokens_rough(api_messages)
+                request_pressure_tokens = approx_tokens + (
+                    _estimate_tools_tokens_rough(agent.tools) if agent.tools else 0
+                )
+                total_chars = approx_tokens * 4
+            except Exception:
+                pass
 
         _runtime_context_error = _ollama_context_limit_error(
             agent, request_pressure_tokens
