@@ -52,8 +52,6 @@ def test_config_parses_recovery_knobs_without_code_changes():
     cfg = ToolCallGuardrailConfig.from_mapping(
         {
             "planner_recovery_enabled": True,
-            "guardrail_local_scope": True,
-            "independent_workstream_execution": True,
             "equivalent_retry_limit": 3,
             "strategy_pivot_limit": 7,
             "global_investigation_budget": 10,
@@ -61,8 +59,6 @@ def test_config_parses_recovery_knobs_without_code_changes():
         }
     )
     assert cfg.planner_recovery_enabled is True
-    assert cfg.guardrail_local_scope is True
-    assert cfg.independent_workstream_execution is True
     assert cfg.equivalent_retry_limit == 3
     assert cfg.equivalent_failure_halt_after == 3
     assert cfg.strategy_pivot_limit == 7

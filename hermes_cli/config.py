@@ -1527,8 +1527,6 @@ DEFAULT_CONFIG = {
         # Recovery-oriented equivalent-probe handling (default on): block the
         # exhausted strategy and require a pivot instead of halting the turn.
         "planner_recovery_enabled": True,
-        "guardrail_local_scope": True,
-        "independent_workstream_execution": True,
         "equivalent_retry_limit": 2,
         "strategy_pivot_limit": 5,
         # 0 = unlimited distinct exhausted probe signatures per turn.

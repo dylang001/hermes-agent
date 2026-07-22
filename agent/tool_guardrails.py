@@ -145,9 +145,9 @@ class ToolCallGuardrailConfig:
     # When True (default), equivalent probe exhaustion returns StrategyChangeRequired
     # and continues the turn. When False, restores legacy task-halting behavior.
     planner_recovery_enabled: bool = True
-    # Scope equivalent blocks to the probe signature / workstream only.
-    guardrail_local_scope: bool = True
-    independent_workstream_execution: bool = True
+    # Local scope + independent workstreams are always-on for recovery mode:
+    # equivalent blocks are probe/workstream-scoped (never turn-global) so
+    # alternate strategies and unrelated workstreams keep executing.
     exact_failure_warn_after: int = 2
     exact_failure_block_after: int = 5
     same_tool_failure_warn_after: int = 3
@@ -199,13 +199,6 @@ class ToolCallGuardrailConfig:
             hard_stop_enabled=_as_bool(data.get("hard_stop_enabled"), defaults.hard_stop_enabled),
             planner_recovery_enabled=_as_bool(
                 data.get("planner_recovery_enabled"), defaults.planner_recovery_enabled
-            ),
-            guardrail_local_scope=_as_bool(
-                data.get("guardrail_local_scope"), defaults.guardrail_local_scope
-            ),
-            independent_workstream_execution=_as_bool(
-                data.get("independent_workstream_execution"),
-                defaults.independent_workstream_execution,
             ),
             exact_failure_warn_after=_positive_int(
                 warn_after.get("exact_failure", data.get("exact_failure_warn_after")),

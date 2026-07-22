@@ -1415,8 +1415,6 @@ tool_loop_guardrails:
   # Equivalent probe failures return StrategyChangeRequired (local pivot) instead
   # of ending the turn. Set planner_recovery_enabled: false for legacy halt behavior.
   planner_recovery_enabled: true
-  guardrail_local_scope: true
-  independent_workstream_execution: true
   equivalent_retry_limit: 2    # same strategy/target/failure signature
   strategy_pivot_limit: 5      # materially different strategies per workstream
   global_investigation_budget: 0  # 0 = unlimited; else cap exhausted signatures
