@@ -82,6 +82,16 @@ class TestConfigParsing:
         assert cfg.max_search_limit == 50
         assert cfg.search_default_limit <= cfg.max_search_limit
 
+    def test_never_defer_toolsets_normalizes_aliases(self):
+        from tools.tool_search import ToolSearchConfig
+        cfg = ToolSearchConfig.from_raw({
+            "never_defer_toolsets": ["composio", "mcp-obsidian"],
+        })
+        assert "composio" in cfg.never_defer_toolsets
+        assert "mcp-composio" in cfg.never_defer_toolsets
+        assert "obsidian" in cfg.never_defer_toolsets
+        assert "mcp-obsidian" in cfg.never_defer_toolsets
+
 
 # ---------------------------------------------------------------------------
 # Classification — the hard invariant: core tools NEVER defer.
@@ -100,6 +110,30 @@ class TestClassification:
             assert not is_deferrable_tool_name(core_name), (
                 f"Core tool '{core_name}' must NEVER be deferrable"
             )
+
+    def test_never_defer_toolsets_keeps_mcp_tools_visible(self, monkeypatch):
+        """Pinned MCP toolsets must not be hidden behind tool_search."""
+        from tools import tool_search as ts
+        from tools.registry import ToolEntry, ToolRegistry
+
+        reg = ToolRegistry()
+        reg.register(
+            name="mcp__composio__COMPOSIO_SEARCH_TOOLS",
+            toolset="mcp-composio",
+            schema={
+                "name": "mcp__composio__COMPOSIO_SEARCH_TOOLS",
+                "description": "search",
+                "parameters": {"type": "object", "properties": {}},
+            },
+            handler=lambda args, **kw: "{}",
+        )
+        monkeypatch.setattr("tools.registry.registry", reg)
+        monkeypatch.setattr(
+            ts,
+            "_never_defer_toolsets",
+            lambda: frozenset({"composio", "mcp-composio"}),
+        )
+        assert not ts.is_deferrable_tool_name("mcp__composio__COMPOSIO_SEARCH_TOOLS")
 
     def test_bridge_tools_never_defer(self):
         from tools.tool_search import is_deferrable_tool_name, BRIDGE_TOOL_NAMES

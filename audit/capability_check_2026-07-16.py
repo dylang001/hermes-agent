@@ -322,13 +322,21 @@ def check_composio(report: RunReport) -> CheckResult:
             r.notes = "composio disabled in config"
             return _finalize(r, started)
 
-        api_key = os.environ.get("COMPOSIO_API_KEY", "").strip()
-        r.authenticated = bool(api_key)
+        # Hermes Composio is OAuth MCP by default. Server API keys in .env are
+        # a separate surface and must not gate this check (they can 401 while
+        # OAuth still works).
+        auth_mode = str(cfg.get("auth") or "").strip().lower()
+        api_key = (
+            os.environ.get("COMPOSIO_API_KEY", "").strip()
+            or os.environ.get("MCP_COMPOSIO_API_KEY", "").strip()
+        )
+        oauth_tokens = (Path.home() / ".hermes" / "mcp" / "composio.json").is_file()
+        r.authenticated = bool(api_key) or oauth_tokens or auth_mode == "oauth"
 
         tools = _probe_single_server(
             "composio",
             cfg,
-            connect_timeout=min(float(cfg.get("connect_timeout", 15) or 15), 15),
+            connect_timeout=min(float(cfg.get("connect_timeout", 20) or 20), 20),
         )
         r.connected = True
         r.stdout_summary = _truncate(", ".join(t[0] for t in tools[:12]))
@@ -341,7 +349,7 @@ def check_composio(report: RunReport) -> CheckResult:
         preferred = None
         for name, _desc in tools:
             low = name.lower()
-            if any(k in low for k in ("list", "get", "search", "whoami", "profile")):
+            if any(k in low for k in ("list", "get", "search", "whoami", "profile", "manage_connections")):
                 preferred = name
                 break
         if preferred is None:
@@ -352,14 +360,22 @@ def check_composio(report: RunReport) -> CheckResult:
             tool = next((t for t in server._tools if t.name == preferred), None)
             if tool is None:
                 raise RuntimeError(f"tool {preferred} missing after list")
-            # Call with empty/minimal args — expect success or structured error
-            return await server.call_tool(preferred, {})
+            # SEARCH_TOOLS needs a minimal body; other read tools accept {}.
+            args = {}
+            if "search" in preferred.lower():
+                args = {
+                    "queries": [{"use_case": "health check list connected accounts"}],
+                    "session": {"generate_id": True},
+                }
+            elif "manage_connections" in preferred.lower():
+                args = {"toolkits": [{"name": "zoho_mail", "action": "list"}]}
+            return await server.call_tool(preferred, args)
 
         _ensure_mcp_loop()
         try:
             invoke_result = _run_on_mcp_loop(_invoke, timeout=20)
             text = str(invoke_result)[:500]
-            r.command = f"composio tool {preferred} {{}}"
+            r.command = f"composio tool {preferred}"
             if "404" in text and "could not be found" in text.lower():
                 r.status = "degraded"
                 r.stderr_summary = _truncate(text)
@@ -377,7 +393,7 @@ def check_composio(report: RunReport) -> CheckResult:
                 r.remediation = "MCP session OK but tool invocation 404 — check Composio URL/route"
             elif "auth" in msg.lower() or "401" in msg:
                 r.status = "auth_required"
-                r.remediation = "Set COMPOSIO_API_KEY or complete Composio OAuth"
+                r.remediation = "Run `hermes mcp login composio` (OAuth). Do not rely on COMPOSIO_API_KEY."
             else:
                 r.status = "degraded"
                 r.remediation = "Composio connected; tool invoke failed — see stderr"

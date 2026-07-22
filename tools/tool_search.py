@@ -68,6 +68,12 @@ class ToolSearchConfig:
     threshold_pct: float  # 0..100 — only used when enabled == "auto"
     search_default_limit: int
     max_search_limit: int
+    # Toolset names (e.g. "composio", "mcp-composio") whose tools must stay
+    # in the model-facing schema even when tool_search is active. Without
+    # this, MCP servers like Composio are invisible unless the model first
+    # invents a tool_search query — which is how agents fall back to the
+    # wrong Python SDK / CLI surface.
+    never_defer_toolsets: frozenset[str] = frozenset()
 
     @classmethod
     def from_raw(cls, raw: Any) -> "ToolSearchConfig":
@@ -106,11 +112,14 @@ class ToolSearchConfig:
         search_default_limit = max(1, min(max_search_limit,
                                           _safe_int(raw.get("search_default_limit"), 5)))
 
+        never_defer = _parse_never_defer_toolsets(raw.get("never_defer_toolsets"))
+
         return cls(
             enabled=enabled,
             threshold_pct=threshold_pct,
             search_default_limit=search_default_limit,
             max_search_limit=max_search_limit,
+            never_defer_toolsets=never_defer,
         )
 
 
@@ -128,6 +137,27 @@ def _safe_float(value: Any, fallback: float) -> float:
         return fallback
 
 
+def _parse_never_defer_toolsets(raw: Any) -> frozenset[str]:
+    """Normalize never_defer_toolsets to a frozenset of toolset aliases.
+
+    Accepts bare MCP server names (``composio``) and ``mcp-`` prefixed names.
+    Both forms are stored so registry lookups match either style.
+    """
+    if not isinstance(raw, (list, tuple, set, frozenset)):
+        return frozenset()
+    names: set[str] = set()
+    for item in raw:
+        name = str(item or "").strip()
+        if not name:
+            continue
+        names.add(name)
+        if name.startswith("mcp-"):
+            names.add(name[len("mcp-"):])
+        else:
+            names.add(f"mcp-{name}")
+    return frozenset(names)
+
+
 def load_config() -> ToolSearchConfig:
     """Load tool-search config from the user config file."""
     try:
@@ -140,6 +170,14 @@ def load_config() -> ToolSearchConfig:
     except Exception as e:
         logger.debug("Failed to load tool-search config: %s", e)
         return ToolSearchConfig.from_raw(None)
+
+
+def _never_defer_toolsets() -> frozenset[str]:
+    """Return configured toolsets that must stay model-visible."""
+    try:
+        return load_config().never_defer_toolsets
+    except Exception:
+        return frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +205,10 @@ def is_deferrable_tool_name(name: str) -> bool:
     OR it is not in ``_HERMES_CORE_TOOLS``. Core tools are never deferred
     even when their toolset is technically plugin-provided (this protects
     against accidental shadowing).
+
+    Toolsets listed in ``tools.tool_search.never_defer_toolsets`` (e.g.
+    ``composio``) also stay visible so agents can call them without a
+    prior ``tool_search`` hop.
     """
     if name in BRIDGE_TOOL_NAMES:
         return False
@@ -178,7 +220,15 @@ def is_deferrable_tool_name(name: str) -> bool:
         entry = registry.get_entry(name)
         if entry is None:
             return False
-        if entry.toolset.startswith("mcp-"):
+        toolset = entry.toolset or ""
+        never_defer = _never_defer_toolsets()
+        if never_defer and (
+            toolset in never_defer
+            or toolset.removeprefix("mcp-") in never_defer
+            or f"mcp-{toolset}" in never_defer
+        ):
+            return False
+        if toolset.startswith("mcp-"):
             return True
         # Non-MCP, non-core → plugin tool, eligible.
         return True

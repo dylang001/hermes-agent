@@ -38,8 +38,11 @@ _TEST_RE = re.compile(
     r"cargo\s+test|go\s+test|unittest)\b",
     re.I,
 )
+# ``make`` only with an explicit build/verify target — never English
+# "make sure" or hostnames like "make.com".
 _BUILD_RE = re.compile(
-    r"(?:^|[\s;&|])(?:make\b|cmake\b|ninja\b|cargo\s+build|npm\s+run\s+build|"
+    r"(?:^|[\s;&|])(?:make\s+(?:test|check|lint|build|typecheck|verify|ci|all)\b|"
+    r"cmake\b|ninja\b|cargo\s+build|npm\s+run\s+build|"
     r"tsc\b|webpack|vite\s+build|uv\s+build|python\s+-m\s+build)\b",
     re.I,
 )
