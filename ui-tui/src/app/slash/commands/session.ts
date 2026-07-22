@@ -252,15 +252,12 @@ export const sessionCommands: SlashCommand[] = [
 
             if (r.summary?.headline) {
               const prefix = r.summary.noop ? '' : '✓ '
-              const lines = Array.isArray(r.summary.report_lines) && r.summary.report_lines.length
+              const rawLines = Array.isArray(r.summary.report_lines) && r.summary.report_lines.length
                 ? r.summary.report_lines
-                : [
-                    r.summary.headline,
-                    r.summary.token_line,
-                    r.summary.note
-                  ].filter(Boolean)
+                : [r.summary.headline, r.summary.token_line, r.summary.note]
+              const lines = rawLines.filter((line): line is string => Boolean(line))
 
-              lines.forEach((line: string, idx: number) => {
+              lines.forEach((line, idx) => {
                 if (idx === 0) {
                   ctx.transcript.sys(`${prefix}${line}`)
                 } else {
