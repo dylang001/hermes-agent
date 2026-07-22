@@ -1464,6 +1464,67 @@ DEFAULT_CONFIG = {
         "port": 9108,
     },
 
+    # Context Engineering V2 — see audit/HERMES_CONTEXT_ENGINEERING_V2_ARCHITECTURE.md
+    # P1: shadow prompt profiler (log-only layer estimates).
+    # P2: Working Memory dark store (persist/restore; legacy prompt unchanged).
+    # P3: SAFE summarise→archive shadow (blobs + attended compare; wire unchanged).
+    # P4: MUTATING pin/unpin epoch (dark pin set; wire unchanged).
+    # P5: layered assemble for inspect steps (opt-in wire change; abort via flag).
+    # P6: context_archive retrieve tool + A/B soak logging.
+    # P1–P4 do not change prompts. P5/P6 do when their flags are enabled.
+    "context_engineering_v2": {
+        "shadow_profiler": {
+            "enabled": False,
+            "recent_turn_budget_tokens": 20_000,
+            "working_memory_budget_tokens": 2_000,
+            "safe_summary_tokens": 64,
+            "log_filename": "context_engineering_v2_shadow.jsonl",
+        },
+        "working_memory": {
+            "enabled": False,
+            "budget_tokens": 2_000,
+            "persist": True,
+        },
+        "safe_archive": {
+            "shadow_enabled": False,
+            "min_chars": 400,
+            "summary_max_chars": 256,
+            "recent_turn_budget_tokens": 20_000,
+            "fold_into_wm": True,
+            "log_filename": "context_engineering_v2_archive_shadow.jsonl",
+        },
+        "pin_epoch": {
+            "enabled": False,
+            "persist": True,
+            "sync_wm": True,
+            "log_filename": "context_engineering_v2_pins_shadow.jsonl",
+        },
+        # Allowlisted VERIFY command registry (structured classifier).
+        # Built-ins cover pytest/ruff/mypy/npm/make test|lint|… and
+        # knowledge_os_lint.py — add repo-specific script basenames here.
+        "verify_commands": {
+            "script_basenames": [],
+            "extra_executables": [],
+        },
+        "assemble": {
+            "enabled": False,
+            "inspect_steps": True,
+            "recent_turn_budget_tokens": 8_000,
+            "fail_open": True,
+            "log_filename": "context_engineering_v2_assemble.jsonl",
+        },
+        "retrieve": {
+            "enabled": False,
+            "max_tokens": 4_000,
+            "auto_on_verify_failure": True,
+            "inject_on_assemble": True,
+        },
+        "soak": {
+            "enabled": False,
+            "log_filename": "context_engineering_v2_soak.jsonl",
+        },
+    },
+
     # Maximum characters returned by a single read_file call.  Reads that
     # exceed this are rejected with guidance to use offset+limit.
     # 100K chars ≈ 25–35K tokens across typical tokenisers.
@@ -3036,6 +3097,10 @@ DEFAULT_CONFIG = {
             "search_default_limit": 5,
             # Hard upper bound the model can request via ``limit``. Range 1..50.
             "max_search_limit": 20,
+            # MCP/plugin toolsets that must stay in the model-facing schema
+            # even when tool_search is active. Bare server names (composio)
+            # and mcp- prefixed names are both accepted.
+            "never_defer_toolsets": [],
         },
     },
 
