@@ -16608,6 +16608,50 @@ def _get_models_analytics(days: int = 30, profile: Optional[str] = None):
             except Exception:
                 pass
 
+            # Shadow-mode reference cost: recomputed from token counters +
+            # versioned registry. Never written into actual_cost_usd.
+            try:
+                from agent.reference_pricing import reference_cost_from_counters
+
+                ref = reference_cost_from_counters(
+                    billing_provider=provider,
+                    model_id=model_name,
+                    input_tokens=row["input_tokens"] or 0,
+                    output_tokens=row["output_tokens"] or 0,
+                    cache_read_tokens=row["cache_read_tokens"] or 0,
+                    reasoning_tokens=row["reasoning_tokens"] or 0,
+                )
+                ref_cost = (
+                    float(ref.reference_cost_usd)
+                    if ref.reference_cost_usd is not None
+                    else None
+                )
+                ref_meta = {
+                    "reference_cost_usd": ref_cost,
+                    "reference_cost_basis": ref.reference_cost_basis,
+                    "pricing_source": ref.pricing_source,
+                    "pricing_effective_date": ref.pricing_effective_date,
+                    "pricing_type": ref.pricing_type,
+                    "cost_confidence": ref.cost_confidence,
+                    "reference_cost_breakdown": {
+                        "input_usd": float(ref.input_usd) if ref.input_usd is not None else None,
+                        "cache_read_usd": (
+                            float(ref.cache_read_usd) if ref.cache_read_usd is not None else None
+                        ),
+                        "output_usd": float(ref.output_usd) if ref.output_usd is not None else None,
+                    },
+                }
+            except Exception:
+                ref_meta = {
+                    "reference_cost_usd": None,
+                    "reference_cost_basis": "unavailable",
+                    "pricing_source": "",
+                    "pricing_effective_date": "",
+                    "pricing_type": "unknown",
+                    "cost_confidence": "none",
+                    "reference_cost_breakdown": {},
+                }
+
             models.append({
                 "model": model_name,
                 "provider": provider,
@@ -16623,6 +16667,7 @@ def _get_models_analytics(days: int = 30, profile: Optional[str] = None):
                 "last_used_at": row["last_used_at"],
                 "avg_tokens_per_session": row["avg_tokens_per_session"],
                 "capabilities": caps,
+                **ref_meta,
             })
 
         totals_cur = db._conn.execute("""
@@ -16638,6 +16683,16 @@ def _get_models_analytics(days: int = 30, profile: Optional[str] = None):
             FROM sessions WHERE started_at > ? AND model IS NOT NULL AND model != ''
         """, (cutoff,))
         totals = dict(totals_cur.fetchone())
+
+        try:
+            from agent.reference_pricing import summarize_reference_coverage
+
+            coverage = summarize_reference_coverage(models)
+            totals["total_reference_cost"] = coverage["total_reference_cost_usd"]
+            totals["unknown_price_coverage_pct"] = coverage["unknown_price_coverage_pct"]
+        except Exception:
+            totals["total_reference_cost"] = None
+            totals["unknown_price_coverage_pct"] = None
 
         return {
             "models": models,

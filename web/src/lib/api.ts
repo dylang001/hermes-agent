@@ -2086,6 +2086,18 @@ export interface ModelsAnalyticsModelEntry {
   reasoning_tokens: number;
   estimated_cost: number;
   actual_cost: number;
+  /** Shadow-mode reference token cost (never billed / actual). */
+  reference_cost_usd?: number | null;
+  reference_cost_basis?: string;
+  pricing_source?: string;
+  pricing_effective_date?: string;
+  pricing_type?: string;
+  cost_confidence?: string;
+  reference_cost_breakdown?: {
+    input_usd?: number | null;
+    cache_read_usd?: number | null;
+    output_usd?: number | null;
+  };
   sessions: number;
   api_calls: number;
   tool_calls: number;
@@ -2111,6 +2123,8 @@ export interface ModelsAnalyticsResponse {
     total_reasoning: number;
     total_estimated_cost: number;
     total_actual_cost: number;
+    total_reference_cost?: number | null;
+    unknown_price_coverage_pct?: number | null;
     total_sessions: number;
     total_api_calls: number;
   };

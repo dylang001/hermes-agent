@@ -2673,6 +2673,7 @@ def run_conversation(
                     # Sanitized universal telemetry (nulls for omitted fields).
                     try:
                         from agent.usage_pricing import build_usage_telemetry_record
+                        from agent.reference_pricing import attach_reference_cost_fields
 
                         _telemetry = build_usage_telemetry_record(
                             canonical_usage,
@@ -2689,6 +2690,13 @@ def run_conversation(
                                 agent.context_compressor, "context_length", None
                             ),
                             context_used_tokens=prompt_tokens,
+                        )
+                        _telemetry = attach_reference_cost_fields(
+                            _telemetry,
+                            canonical_usage,
+                            provider=agent.provider,
+                            model=agent.model,
+                            base_url=getattr(agent, "base_url", None),
                         )
                         logger.info(
                             "usage_telemetry %s",
@@ -2763,6 +2771,8 @@ def run_conversation(
                                 e,
                             )
                     try:
+                        from agent.reference_pricing import attach_reference_cost_fields
+
                         _telemetry = build_usage_telemetry_record(
                             _empty_usage,
                             provider=agent.provider,
@@ -2774,6 +2784,13 @@ def run_conversation(
                             else None,
                             cost=None,
                             cost_status="unknown",
+                        )
+                        _telemetry = attach_reference_cost_fields(
+                            _telemetry,
+                            _empty_usage,
+                            provider=agent.provider,
+                            model=agent.model,
+                            base_url=getattr(agent, "base_url", None),
                         )
                         logger.info(
                             "usage_telemetry %s",

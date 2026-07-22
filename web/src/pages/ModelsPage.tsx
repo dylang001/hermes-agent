@@ -511,11 +511,21 @@ function ModelCard({
         <div className="flex items-center justify-between text-xs text-text-secondary border-t border-border/30 pt-2">
           <div className="flex items-center gap-3">
             {showTokens && entry.estimated_cost > 0 && (
-              <span className="flex items-center gap-0.5">
+              <span className="flex items-center gap-0.5" title="Estimated / billed path">
                 <DollarSign className="h-2.5 w-2.5" />
                 {formatCost(entry.estimated_cost)}
               </span>
             )}
+            {showTokens &&
+              entry.reference_cost_usd != null &&
+              entry.reference_cost_usd > 0 && (
+                <span
+                  className="flex items-center gap-0.5 text-text-tertiary"
+                  title={`Reference token cost (${entry.pricing_type || "reference"}; ${entry.pricing_source || "registry"})`}
+                >
+                  ~{formatCost(entry.reference_cost_usd)} ref
+                </span>
+              )}
             {showTokens && entry.tool_calls > 0 && (
               <span className="flex items-center gap-0.5">
                 <Zap className="h-2.5 w-2.5" />
@@ -1260,6 +1270,13 @@ export default function ModelsPage() {
                         {
                           label: t.models.estimatedCost,
                           value: formatCost(data.totals.total_estimated_cost),
+                        },
+                        {
+                          label: "Ref. Cost",
+                          value:
+                            data.totals.total_reference_cost != null
+                              ? formatCost(data.totals.total_reference_cost)
+                              : "—",
                         },
                         {
                           label: t.analytics.totalSessions,
