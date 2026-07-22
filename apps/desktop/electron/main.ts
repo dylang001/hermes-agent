@@ -7794,12 +7794,15 @@ async function startHermes() {
 
     const message = error instanceof Error ? error.message : String(error)
 
-    // Only latch LOCAL boot failures. A remote failure (lapsed session / mint
-    // timeout / host briefly unreachable across sleep) is transient and has no
-    // child 'exit' handler to clear the cache — latching it would wedge the app
-    // on "session expired" until a full restart, defeating reconnect, the
-    // "Sign out & sign in" reload, and the wake-recovery revalidate path.
-    if (shouldLatchBackendStartFailure({ attemptedRemote })) {
+    // Latch LOCAL boot failures (break install-restart loops) and remote
+    // auth-required failures (no OAuth cookies / needsOauthLogin — retrying is
+    // pointless and hot-loops desktop.log). Other remote failures stay
+    // unlatched: a lapsed AT / mint timeout / brief sleep-wake blip must stay
+    // retryable so reconnect and wake-recovery can re-mint without a restart.
+    // apply / oauth-login / resetBootstrap clear the latch via
+    // resetHermesConnection().
+    const needsAuth = Boolean((error as any)?.needsOauthLogin)
+    if (shouldLatchBackendStartFailure({ attemptedRemote, needsAuth })) {
       backendStartFailure = error instanceof Error ? error : new Error(message)
     }
 
@@ -8712,6 +8715,9 @@ ipcMain.handle('hermes:connection-config:oauth-login', async (_event, rawUrl) =>
   // land in the OAuth partition. The caller (settings UI) typically saves the
   // remote config with authMode='oauth' first, then calls this. We normalize
   // the URL defensively so a login can be driven from a raw URL too.
+  // Drop any latched auth failure first so a successful sign-in + reload can
+  // re-resolve instead of re-throwing the cached "not signed in" error.
+  backendStartFailure = null
   const baseUrl = normalizeRemoteBaseUrl(rawUrl)
   await openOauthLoginWindow(baseUrl)
 
