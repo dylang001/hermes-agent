@@ -1524,6 +1524,15 @@ DEFAULT_CONFIG = {
     "tool_loop_guardrails": {
         "warnings_enabled": True,
         "hard_stop_enabled": False,
+        # Recovery-oriented equivalent-probe handling (default on): block the
+        # exhausted strategy and require a pivot instead of halting the turn.
+        "planner_recovery_enabled": True,
+        "guardrail_local_scope": True,
+        "independent_workstream_execution": True,
+        "equivalent_retry_limit": 2,
+        "strategy_pivot_limit": 5,
+        # 0 = unlimited distinct exhausted probe signatures per turn.
+        "global_investigation_budget": 0,
         "warn_after": {
             "exact_failure": 2,
             "same_tool_failure": 3,
@@ -1534,8 +1543,8 @@ DEFAULT_CONFIG = {
             "exact_failure": 5,
             "same_tool_failure": 8,
             "idempotent_no_progress": 5,
-            # Equivalent missing-path probes (ls/pwd/echo variations of the
-            # same dead path) halt after 2 — see agent/tool_guardrails.py.
+            # Equivalent same-strategy retries before StrategyChangeRequired.
+            # Alias of equivalent_retry_limit for backward compatibility.
             "equivalent_failure": 2,
         },
     },

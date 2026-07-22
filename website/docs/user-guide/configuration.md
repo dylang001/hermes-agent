@@ -1412,6 +1412,14 @@ For unattended gateway / server deployments, enable hard stops so a stuck agent 
 tool_loop_guardrails:
   warnings_enabled: true       # inject warnings into tool results (default: true)
   hard_stop_enabled: false     # also BLOCK the call past the hard-stop threshold (default: false)
+  # Equivalent probe failures return StrategyChangeRequired (local pivot) instead
+  # of ending the turn. Set planner_recovery_enabled: false for legacy halt behavior.
+  planner_recovery_enabled: true
+  guardrail_local_scope: true
+  independent_workstream_execution: true
+  equivalent_retry_limit: 2    # same strategy/target/failure signature
+  strategy_pivot_limit: 5      # materially different strategies per workstream
+  global_investigation_budget: 0  # 0 = unlimited; else cap exhausted signatures
   warn_after:
     exact_failure: 2           # identical failing call repeated N times
     same_tool_failure: 3       # same tool failing N times (different args)
@@ -1420,9 +1428,10 @@ tool_loop_guardrails:
     exact_failure: 5
     same_tool_failure: 8
     idempotent_no_progress: 5
+    equivalent_failure: 2      # alias of equivalent_retry_limit
 ```
 
-`hard_stop_enabled` defaults to `false` because interactive sessions have a human in the loop. In unattended deployments (gateway, cron, kanban workers) set it to `true` so repeated failures are blocked rather than only warned. See also [Docker / unattended deployments](docker.md).
+`hard_stop_enabled` defaults to `false` because interactive sessions have a human in the loop. In unattended deployments (gateway, cron, kanban workers) set it to `true` so repeated failures are blocked rather than only warned. With `planner_recovery_enabled` (default `true`), equivalent path/search loops force a strategy pivot and continue other workstreams; the turn only escalates after `strategy_pivot_limit` pivots are exhausted. See also [Docker / unattended deployments](docker.md).
 
 ## TTS Configuration
 

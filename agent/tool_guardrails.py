@@ -2,8 +2,8 @@
 
 The controller in this module is intentionally side-effect free: it tracks
 per-turn tool-call observations and returns decisions. Runtime code owns whether
-those decisions become warning guidance, synthetic tool results, or controlled
-turn halts.
+those decisions become warning guidance, synthetic tool results, strategy-change
+payloads, or controlled turn halts.
 """
 
 from __future__ import annotations
@@ -18,7 +18,14 @@ from utils import safe_json_loads
 from agent.tool_result_classification import file_mutation_result_landed
 
 # Absolute paths embedded in terminal commands / file tool args.
-_ABS_PATH_RE = re.compile(r"(?<![\w.-])(/(?:root|opt|usr|home|var|tmp)[^\s;'\"`|&<>]*)")
+# Prefer well-known roots, but also accept any multi-segment abs path so
+# probes like `/engine/cli` participate in equivalent-failure signatures.
+_ABS_PATH_RE = re.compile(
+    r"(?<![\w.-])("
+    r"/(?:root|opt|usr|home|var|tmp)[^\s;'\"`|&<>]*"
+    r"|/(?:[^/\s;'\"`|&<>]+/){1,}[^/\s;'\"`|&<>]+"
+    r")"
+)
 _MISSING_PATH_MARKERS = (
     "no such file or directory",
     "cannot access",
@@ -26,6 +33,56 @@ _MISSING_PATH_MARKERS = (
     "not a directory",
     "is a directory",
 )
+_NO_MATCH_MARKERS = (
+    "no matches found",
+    "no matches",
+    "0 matches",
+    "matched: 0",
+    "did not match any files",
+)
+_COMMAND_CLASS_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("ripgrep", re.compile(r"(?:^|[\s;|&])(?:rg|ripgrep)\b")),
+    ("grep", re.compile(r"(?:^|[\s;|&])grep\b")),
+    ("find", re.compile(r"(?:^|[\s;|&])find\b")),
+    ("fd", re.compile(r"(?:^|[\s;|&])fd\b")),
+    ("git", re.compile(r"(?:^|[\s;|&])git\b")),
+    ("ls", re.compile(r"(?:^|[\s;|&])ls\b")),
+    ("python", re.compile(r"(?:^|[\s;|&])(?:python3?|ipython)\b")),
+    ("systemctl", re.compile(r"(?:^|[\s;|&])systemctl\b")),
+    ("cat", re.compile(r"(?:^|[\s;|&])(?:cat|head|tail)\b")),
+)
+
+_STRATEGY_SUGGESTIONS: dict[str, tuple[str, ...]] = {
+    "grep": (
+        "git ls-files / find / fd from the repo root",
+        "ripgrep (rg) with a different root or glob",
+        "python -c 'import pkgutil, inspect' to locate modules",
+        "spawn an engineering/code-navigation subagent via delegate_task",
+    ),
+    "ripgrep": (
+        "git ls-files or find/fd for repository discovery",
+        "python inspect/pkgutil for installed packages",
+        "inspect runtime roots (systemctl, ExecStart, /proc/<pid>/cwd)",
+        "delegate_task to an engineering subagent",
+    ),
+    "ls": (
+        "find / fd / git ls-files instead of repeated ls",
+        "read_file / search_files on a known writable root",
+        "runtime discovery via systemctl / EnvironmentFile / /proc/<pid>/cwd",
+    ),
+    "find": (
+        "git ls-files or fd with a narrower pattern",
+        "python inspect for package modules",
+        "database / config inspection instead of source search",
+    ),
+    "default": (
+        "change tool or target — do not repeat the same probe",
+        "inspect runtime state (logs, timers, systemd, DB) if source search stalled",
+        "validate independent workstreams (SMTP/IMAP/credentials/readiness) separately",
+        "delegate_task when code navigation is the bottleneck",
+        "escalate only for permissions, missing credentials, or destructive approval",
+    ),
+}
 
 
 IDEMPOTENT_TOOL_NAMES = frozenset(
@@ -78,23 +135,40 @@ class ToolCallGuardrailConfig:
     Warnings are enabled by default and never prevent tool execution. Hard stops
     are explicit opt-in so interactive CLI/TUI sessions get a gentle nudge unless
     the user enables circuit-breaker behavior in config.yaml.
+
+    Equivalent probe failures default to recovery-oriented strategy pivots
+    (``planner_recovery_enabled``) rather than terminating the whole turn.
     """
 
     warnings_enabled: bool = True
     hard_stop_enabled: bool = False
+    # When True (default), equivalent probe exhaustion returns StrategyChangeRequired
+    # and continues the turn. When False, restores legacy task-halting behavior.
+    planner_recovery_enabled: bool = True
+    # Scope equivalent blocks to the probe signature / workstream only.
+    guardrail_local_scope: bool = True
+    independent_workstream_execution: bool = True
     exact_failure_warn_after: int = 2
     exact_failure_block_after: int = 5
     same_tool_failure_warn_after: int = 3
     same_tool_failure_halt_after: int = 8
-    # Equivalent missing-path / same-target retries (syntactically different
-    # commands that still probe the same dead path). Default 2 — far below the
-    # generic same_tool_failure halt — so stale /root probes stop immediately.
+    # Equivalent same-strategy retries (same tool/command-class/target/failure).
     equivalent_failure_warn_after: int = 1
-    equivalent_failure_halt_after: int = 2
+    equivalent_retry_limit: int = 2
+    # Materially different strategies allowed against the same workstream.
+    strategy_pivot_limit: int = 5
+    # Optional global investigation budget (distinct probe signatures that
+    # exhausted). 0 disables the global cap.
+    global_investigation_budget: int = 0
     no_progress_warn_after: int = 2
     no_progress_block_after: int = 5
     idempotent_tools: frozenset[str] = field(default_factory=lambda: IDEMPOTENT_TOOL_NAMES)
     mutating_tools: frozenset[str] = field(default_factory=lambda: MUTATING_TOOL_NAMES)
+
+    # Back-compat alias used by older call sites / tests.
+    @property
+    def equivalent_failure_halt_after(self) -> int:
+        return self.equivalent_retry_limit
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any] | None) -> "ToolCallGuardrailConfig":
@@ -110,9 +184,29 @@ class ToolCallGuardrailConfig:
             hard_stop_after = {}
 
         defaults = cls()
+        equivalent_retry = _positive_int(
+            data.get(
+                "equivalent_retry_limit",
+                hard_stop_after.get(
+                    "equivalent_failure",
+                    data.get("equivalent_failure_halt_after"),
+                ),
+            ),
+            defaults.equivalent_retry_limit,
+        )
         return cls(
             warnings_enabled=_as_bool(data.get("warnings_enabled"), defaults.warnings_enabled),
             hard_stop_enabled=_as_bool(data.get("hard_stop_enabled"), defaults.hard_stop_enabled),
+            planner_recovery_enabled=_as_bool(
+                data.get("planner_recovery_enabled"), defaults.planner_recovery_enabled
+            ),
+            guardrail_local_scope=_as_bool(
+                data.get("guardrail_local_scope"), defaults.guardrail_local_scope
+            ),
+            independent_workstream_execution=_as_bool(
+                data.get("independent_workstream_execution"),
+                defaults.independent_workstream_execution,
+            ),
             exact_failure_warn_after=_positive_int(
                 warn_after.get("exact_failure", data.get("exact_failure_warn_after")),
                 defaults.exact_failure_warn_after,
@@ -137,9 +231,12 @@ class ToolCallGuardrailConfig:
                 warn_after.get("equivalent_failure", data.get("equivalent_failure_warn_after")),
                 defaults.equivalent_failure_warn_after,
             ),
-            equivalent_failure_halt_after=_positive_int(
-                hard_stop_after.get("equivalent_failure", data.get("equivalent_failure_halt_after")),
-                defaults.equivalent_failure_halt_after,
+            equivalent_retry_limit=equivalent_retry,
+            strategy_pivot_limit=_positive_int(
+                data.get("strategy_pivot_limit"), defaults.strategy_pivot_limit
+            ),
+            global_investigation_budget=_nonnegative_int(
+                data.get("global_investigation_budget"), defaults.global_investigation_budget
             ),
             no_progress_block_after=_positive_int(
                 hard_stop_after.get("idempotent_no_progress", data.get("no_progress_block_after")),
@@ -166,15 +263,63 @@ class ToolCallSignature:
 
 
 @dataclass(frozen=True)
+class FailureSignature:
+    """Normalized identity for equivalent non-progressing probe failures."""
+
+    tool: str
+    command_class: str
+    target: str
+    failure_class: str
+    exit_code: str
+    stderr_class: str
+
+    @property
+    def key(self) -> str:
+        return "|".join(
+            (
+                self.tool,
+                self.command_class,
+                self.target,
+                self.failure_class,
+                self.exit_code,
+                self.stderr_class,
+            )
+        )
+
+    @property
+    def probe_key(self) -> str:
+        """Args-only key used to block equivalent retries before execution."""
+        return f"{self.tool}|{self.command_class}|{self.target}"
+
+    @property
+    def workstream(self) -> str:
+        return self.target or f"{self.tool}:unscoped"
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "tool": self.tool,
+            "command_class": self.command_class,
+            "target": self.target,
+            "failure_class": self.failure_class,
+            "exit_code": self.exit_code,
+            "stderr_class": self.stderr_class,
+            "key": self.key,
+            "probe_key": self.probe_key,
+            "workstream": self.workstream,
+        }
+
+
+@dataclass(frozen=True)
 class ToolGuardrailDecision:
     """Decision returned by the tool-call guardrail controller."""
 
-    action: str = "allow"  # allow | warn | block | halt
+    action: str = "allow"  # allow | warn | block | halt | strategy_change
     code: str = "allow"
     message: str = ""
     tool_name: str = ""
     count: int = 0
     signature: ToolCallSignature | None = None
+    recovery: Mapping[str, Any] | None = None
 
     @property
     def allows_execution(self) -> bool:
@@ -182,6 +327,9 @@ class ToolGuardrailDecision:
 
     @property
     def should_halt(self) -> bool:
+        # strategy_change is local: block the probe, continue the turn.
+        if self.action == "strategy_change":
+            return False
         return self.action in {"block", "halt"}
 
     def to_metadata(self) -> dict[str, Any]:
@@ -194,6 +342,8 @@ class ToolGuardrailDecision:
         }
         if self.signature is not None:
             data["signature"] = self.signature.to_metadata()
+        if self.recovery is not None:
+            data["recovery"] = dict(self.recovery)
         return data
 
 
@@ -256,12 +406,23 @@ class ToolCallGuardrailController:
         self._exact_failure_counts: dict[ToolCallSignature, int] = {}
         self._same_tool_failure_counts: dict[str, int] = {}
         self._equivalent_failure_counts: dict[str, int] = {}
+        self._blocked_probe_keys: set[str] = set()
+        self._commands_attempted: dict[str, list[str]] = {}
+        self._strategy_pivot_counts: dict[str, int] = {}
+        self._exhausted_probe_signatures: set[str] = set()
         self._no_progress: dict[ToolCallSignature, tuple[str, int]] = {}
         self._halt_decision: ToolGuardrailDecision | None = None
+        self._pending_telemetry: list[dict[str, Any]] = []
 
     @property
     def halt_decision(self) -> ToolGuardrailDecision | None:
         return self._halt_decision
+
+    def drain_telemetry(self) -> list[dict[str, Any]]:
+        """Return and clear side-effect-free telemetry events for the runtime."""
+        events = list(self._pending_telemetry)
+        self._pending_telemetry.clear()
+        return events
 
     def before_call(self, tool_name: str, args: Mapping[str, Any] | None) -> ToolGuardrailDecision:
         args = _coerce_args(args)
@@ -286,26 +447,53 @@ class ToolCallGuardrailController:
             self._halt_decision = decision
             return decision
 
-        eq_key = equivalent_failure_key(tool_name, args)
-        if eq_key is not None:
-            eq_count = self._equivalent_failure_counts.get(eq_key, 0)
-            if eq_count >= self.config.equivalent_failure_halt_after:
-                decision = ToolGuardrailDecision(
-                    action="block",
-                    code="equivalent_path_failure_block",
-                    message=(
-                        f"Blocked {tool_name}: equivalent probes of the same missing "
-                        f"path failed {eq_count} times (key={eq_key}). Do not retry "
-                        "with cosmetic command changes (pwd/echo/ls variations). "
-                        "Inspect authoritative runtime roots, use a different path "
-                        "or tool, or report the blocker."
-                    ),
-                    tool_name=tool_name,
-                    count=eq_count,
-                    signature=signature,
-                )
-                self._halt_decision = decision
-                return decision
+        probe = build_probe_identity(tool_name, args)
+        if probe is not None and probe.probe_key in self._blocked_probe_keys:
+            # Local block only — never terminate the turn for a blocked probe.
+            # Independent workstreams and alternate strategies remain available.
+            recovery = self._strategy_change_payload(
+                probe,
+                commands=self._commands_attempted.get(probe.workstream, []),
+                count=self._count_for_probe(probe),
+            )
+            decision = ToolGuardrailDecision(
+                action="strategy_change",
+                code="strategy_change_required",
+                message=recovery["message"],
+                tool_name=tool_name,
+                count=recovery["count"],
+                signature=signature,
+                recovery=recovery,
+            )
+            self._queue_telemetry(
+                "guardrail_blocked_equivalent_probe",
+                probe=probe,
+                decision=decision,
+            )
+            return decision
+
+        # Legacy path-only key: keep blocking cosmetic retries when recovery is off.
+        if not self.config.planner_recovery_enabled:
+            eq_key = equivalent_failure_key(tool_name, args)
+            if eq_key is not None:
+                eq_count = self._equivalent_failure_counts.get(eq_key, 0)
+                if eq_count >= self.config.equivalent_retry_limit:
+                    decision = ToolGuardrailDecision(
+                        action="block",
+                        code="equivalent_path_failure_block",
+                        message=(
+                            f"Blocked {tool_name}: equivalent probes of the same missing "
+                            f"path failed {eq_count} times (key={eq_key}). Do not retry "
+                            "with cosmetic command changes (pwd/echo/ls variations). "
+                            "Inspect authoritative runtime roots, use a different path "
+                            "or tool, or report the blocker."
+                        ),
+                        tool_name=tool_name,
+                        count=eq_count,
+                        signature=signature,
+                    )
+                    self._halt_decision = decision
+                    return decision
 
         if self._is_idempotent(tool_name):
             record = self._no_progress.get(signature)
@@ -350,34 +538,97 @@ class ToolCallGuardrailController:
             same_count = self._same_tool_failure_counts.get(tool_name, 0) + 1
             self._same_tool_failure_counts[tool_name] = same_count
 
-            eq_key = None
+            failure_sig = build_failure_signature(tool_name, args, result)
             eq_count = 0
-            if looks_like_missing_path_failure(result):
-                eq_key = equivalent_failure_key(tool_name, args)
-                if eq_key is not None:
-                    eq_count = self._equivalent_failure_counts.get(eq_key, 0) + 1
-                    self._equivalent_failure_counts[eq_key] = eq_count
+            if failure_sig is not None:
+                eq_count = self._equivalent_failure_counts.get(failure_sig.key, 0) + 1
+                self._equivalent_failure_counts[failure_sig.key] = eq_count
+                # Also track legacy path-only key for recovery-disabled mode.
+                legacy_key = equivalent_failure_key(tool_name, args)
+                if legacy_key is not None:
+                    self._equivalent_failure_counts[legacy_key] = (
+                        self._equivalent_failure_counts.get(legacy_key, 0) + 1
+                    )
+                cmd = _command_text(tool_name, args)
+                if cmd:
+                    attempted = self._commands_attempted.setdefault(failure_sig.workstream, [])
+                    if cmd not in attempted:
+                        attempted.append(cmd)
 
             if (
                 self.config.hard_stop_enabled
-                and eq_key is not None
-                and eq_count >= self.config.equivalent_failure_halt_after
+                and failure_sig is not None
+                and eq_count >= self.config.equivalent_retry_limit
             ):
+                recovery = self._strategy_change_payload(
+                    failure_sig,
+                    commands=self._commands_attempted.get(failure_sig.workstream, []),
+                    count=eq_count,
+                )
+                if (
+                    not self.config.planner_recovery_enabled
+                    or self._should_escalate_workstream(failure_sig.workstream, about_to_pivot=True)
+                ):
+                    code = (
+                        "strategy_pivots_exhausted"
+                        if self.config.planner_recovery_enabled
+                        else "equivalent_path_failure_halt"
+                    )
+                    decision = ToolGuardrailDecision(
+                        action="halt",
+                        code=code,
+                        message=(
+                            f"Stopped {tool_name}: recovery strategies for "
+                            f"{failure_sig.workstream} are exhausted after "
+                            f"{self._strategy_pivot_counts.get(failure_sig.workstream, 0)} "
+                            "pivots / equivalent retries. Escalate only for a genuine "
+                            "external blocker (permissions, credentials, destructive approval)."
+                            if code == "strategy_pivots_exhausted"
+                            else (
+                                f"Stopped {tool_name}: equivalent probes of path target "
+                                f"{failure_sig.target or failure_sig.key} failed {eq_count} times. "
+                                "Do not retry with syntactically different commands against "
+                                "the same missing path."
+                            )
+                        ),
+                        tool_name=tool_name,
+                        count=eq_count,
+                        signature=signature,
+                        recovery=recovery,
+                    )
+                    self._halt_decision = decision
+                    self._queue_telemetry(
+                        "guardrail_halt",
+                        probe=failure_sig,
+                        decision=decision,
+                    )
+                    return decision
+
+                # Recovery path: mark this probe exhausted, count a pivot, continue.
+                self._blocked_probe_keys.add(failure_sig.probe_key)
+                self._exhausted_probe_signatures.add(failure_sig.key)
+                self._strategy_pivot_counts[failure_sig.workstream] = (
+                    self._strategy_pivot_counts.get(failure_sig.workstream, 0) + 1
+                )
                 decision = ToolGuardrailDecision(
-                    action="halt",
-                    code="equivalent_path_failure_halt",
-                    message=(
-                        f"Stopped {tool_name}: equivalent probes of path target "
-                        f"{eq_key} failed {eq_count} times. Do not retry with "
-                        "syntactically different commands against the same missing "
-                        "path. Use authoritative runtime writable roots, remap stale "
-                        "/root paths to the live deployment, or switch tools."
-                    ),
+                    action="strategy_change",
+                    code="strategy_change_required",
+                    message=recovery["message"],
                     tool_name=tool_name,
                     count=eq_count,
                     signature=signature,
+                    recovery=recovery,
                 )
-                self._halt_decision = decision
+                self._queue_telemetry(
+                    "guardrail_strategy_change",
+                    probe=failure_sig,
+                    decision=decision,
+                    extra={
+                        "strategy_pivots": self._strategy_pivot_counts.get(
+                            failure_sig.workstream, 0
+                        ),
+                    },
+                )
                 return decision
 
             if self.config.hard_stop_enabled and same_count >= self.config.same_tool_failure_halt_after:
@@ -397,16 +648,23 @@ class ToolCallGuardrailController:
 
             if (
                 self.config.warnings_enabled
-                and eq_key is not None
+                and failure_sig is not None
                 and eq_count >= self.config.equivalent_failure_warn_after
             ):
                 return ToolGuardrailDecision(
                     action="warn",
                     code="equivalent_path_failure_warning",
-                    message=_path_failure_recovery_hint(tool_name, eq_key, eq_count),
+                    message=_path_failure_recovery_hint(
+                        tool_name, failure_sig.target or failure_sig.key, eq_count
+                    ),
                     tool_name=tool_name,
                     count=eq_count,
                     signature=signature,
+                    recovery=self._strategy_change_payload(
+                        failure_sig,
+                        commands=self._commands_attempted.get(failure_sig.workstream, []),
+                        count=eq_count,
+                    ),
                 )
 
             if self.config.warnings_enabled and exact_count >= self.config.exact_failure_warn_after:
@@ -435,8 +693,19 @@ class ToolCallGuardrailController:
 
             return ToolGuardrailDecision(tool_name=tool_name, count=exact_count, signature=signature)
 
+        # Success: clear exact/same-tool streaks. A successful different probe
+        # under a workstream resets that workstream's equivalent retry counters.
         self._exact_failure_counts.pop(signature, None)
         self._same_tool_failure_counts.pop(tool_name, None)
+        probe = build_probe_identity(tool_name, args)
+        if probe is not None:
+            self._reset_equivalent_counters_for_workstream(probe.workstream)
+            if probe.probe_key in self._blocked_probe_keys:
+                self._queue_telemetry(
+                    "guardrail_recovery_success",
+                    probe=probe,
+                    decision=ToolGuardrailDecision(tool_name=tool_name, signature=signature),
+                )
 
         if not self._is_idempotent(tool_name):
             self._no_progress.pop(signature, None)
@@ -470,27 +739,154 @@ class ToolCallGuardrailController:
             return False
         return tool_name in self.config.idempotent_tools
 
+    def _count_for_probe(self, probe: FailureSignature) -> int:
+        matching = [
+            count
+            for key, count in self._equivalent_failure_counts.items()
+            if key == probe.key or key.startswith(probe.probe_key + "|")
+        ]
+        if matching:
+            return max(matching)
+        return self.config.equivalent_retry_limit
+
+    def _should_escalate_workstream(self, workstream: str, *, about_to_pivot: bool = False) -> bool:
+        pivots = self._strategy_pivot_counts.get(workstream, 0)
+        # Already used the full pivot budget — next equivalent exhaustion escalates.
+        if about_to_pivot and pivots >= self.config.strategy_pivot_limit:
+            return True
+        if (
+            self.config.global_investigation_budget > 0
+            and len(self._exhausted_probe_signatures) >= self.config.global_investigation_budget
+            and about_to_pivot
+        ):
+            return True
+        return False
+
+    def _reset_equivalent_counters_for_workstream(self, workstream: str) -> None:
+        """A successful pivot resets equivalent retry counters for that workstream."""
+        drop_keys = [
+            key
+            for key in self._equivalent_failure_counts
+            if key == f"terminal:{workstream}"
+            or key.endswith(f"|{workstream}|")
+            or f"|{workstream}|" in f"|{key}|"
+            or key.endswith(f":{workstream}")
+        ]
+        # Prefer exact workstream bookkeeping via probe keys.
+        drop_probes = {pk for pk in self._blocked_probe_keys if pk.endswith(f"|{workstream}")}
+        for key in drop_keys:
+            self._equivalent_failure_counts.pop(key, None)
+        self._blocked_probe_keys -= drop_probes
+        self._exhausted_probe_signatures = {
+            key
+            for key in self._exhausted_probe_signatures
+            if f"|{workstream}|" not in f"|{key}|"
+        }
+
+    def _strategy_change_payload(
+        self,
+        probe: FailureSignature,
+        *,
+        commands: list[str],
+        count: int,
+    ) -> dict[str, Any]:
+        suggestions = list(
+            _STRATEGY_SUGGESTIONS.get(probe.command_class, _STRATEGY_SUGGESTIONS["default"])
+        )
+        message = (
+            "StrategyChangeRequired: current diagnostic approach exhausted for "
+            f"{probe.probe_key} after {count} equivalent failure(s). "
+            "Select a materially different strategy; continue independent workstreams. "
+            "This is not a task failure."
+        )
+        return {
+            "StrategyChangeRequired": True,
+            "failure_signature": probe.to_dict(),
+            "commands_attempted": list(commands),
+            "affected_path": probe.target,
+            "suggested_alternative_strategies": suggestions,
+            "planner_directive": (
+                "Current approach exhausted. Select a different diagnostic strategy."
+            ),
+            "message": message,
+            "count": count,
+            "strategy_pivots": self._strategy_pivot_counts.get(probe.workstream, 0),
+            "strategy_pivot_limit": self.config.strategy_pivot_limit,
+        }
+
+    def _queue_telemetry(
+        self,
+        event: str,
+        *,
+        probe: FailureSignature,
+        decision: ToolGuardrailDecision,
+        extra: Mapping[str, Any] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "event": event,
+            "code": decision.code,
+            "action": decision.action,
+            "tool_name": decision.tool_name,
+            "count": decision.count,
+            "failure_signature": probe.to_dict(),
+            "commands_blocked": list(self._commands_attempted.get(probe.workstream, [])),
+        }
+        if extra:
+            payload.update(dict(extra))
+        self._pending_telemetry.append(payload)
+
 
 def toolguard_synthetic_result(decision: ToolGuardrailDecision) -> str:
     """Build a synthetic role=tool content string for a blocked tool call."""
-    return json.dumps(
-        {
-            "error": decision.message,
-            "guardrail": decision.to_metadata(),
-        },
-        ensure_ascii=False,
-    )
+    payload: dict[str, Any] = {
+        "error": decision.message,
+        "guardrail": decision.to_metadata(),
+    }
+    if decision.recovery is not None:
+        payload["StrategyChangeRequired"] = decision.recovery.get("StrategyChangeRequired", True)
+        for key in (
+            "failure_signature",
+            "commands_attempted",
+            "affected_path",
+            "suggested_alternative_strategies",
+            "planner_directive",
+        ):
+            if key in decision.recovery:
+                payload[key] = decision.recovery[key]
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def append_toolguard_guidance(result: str, decision: ToolGuardrailDecision) -> str:
     """Append runtime guidance to the current tool result content."""
-    if decision.action not in {"warn", "halt"} or not decision.message:
+    if decision.action not in {"warn", "halt", "strategy_change"} or not decision.message:
         return result
-    label = "Tool loop hard stop" if decision.action == "halt" else "Tool loop warning"
+    if decision.action == "halt":
+        label = "Tool loop hard stop"
+    elif decision.action == "strategy_change":
+        label = "StrategyChangeRequired"
+    else:
+        label = "Tool loop warning"
     suffix = (
         f"\n\n[{label}: "
         f"{decision.code}; count={decision.count}; {decision.message}]"
     )
+    if decision.action == "strategy_change" and decision.recovery:
+        try:
+            suffix += "\n" + json.dumps(
+                {
+                    "StrategyChangeRequired": decision.recovery.get("StrategyChangeRequired", True),
+                    "failure_signature": decision.recovery.get("failure_signature"),
+                    "commands_attempted": decision.recovery.get("commands_attempted"),
+                    "affected_path": decision.recovery.get("affected_path"),
+                    "suggested_alternative_strategies": decision.recovery.get(
+                        "suggested_alternative_strategies"
+                    ),
+                    "planner_directive": decision.recovery.get("planner_directive"),
+                },
+                ensure_ascii=False,
+            )
+        except TypeError:
+            pass
     return (result or "") + suffix
 
 
@@ -521,7 +917,8 @@ def _path_failure_recovery_hint(tool_name: str, eq_key: str, count: int) -> str:
         from agent.runtime_metadata import collect_runtime_metadata, remap_stale_paths
 
         meta = collect_runtime_metadata()
-        remapped = remap_stale_paths(eq_key.split(":", 1)[-1], meta)
+        path = eq_key.split(":", 1)[-1] if ":" in eq_key and not eq_key.startswith("/") else eq_key
+        remapped = remap_stale_paths(path, meta)
         roots = ", ".join(meta.writable_roots[:6]) or meta.hermes_home
         return (
             f"{tool_name} failed {count} time(s) against equivalent path target {eq_key}. "
@@ -545,6 +942,135 @@ def looks_like_missing_path_failure(result: str | None) -> bool:
         return False
     lower = result[:2000].lower()
     return any(marker in lower for marker in _MISSING_PATH_MARKERS)
+
+
+def looks_like_no_match_failure(result: str | None) -> bool:
+    """True when a search-style tool result indicates zero matches / empty hit set."""
+    if not result:
+        return False
+    lower = result[:2000].lower()
+    if any(marker in lower for marker in _NO_MATCH_MARKERS):
+        return True
+    data = safe_json_loads(result)
+    if not isinstance(data, dict):
+        return False
+    exit_code = data.get("exit_code")
+    stdout = str(data.get("stdout") or "").strip()
+    stderr = str(data.get("stderr") or "").strip().lower()
+    if exit_code == 1 and not stdout and (
+        not stderr or any(marker in stderr for marker in _NO_MATCH_MARKERS)
+    ):
+        return True
+    return False
+
+
+def classify_command_class(tool_name: str, args: Mapping[str, Any] | None) -> str:
+    """Classify the primary CLI/tool strategy represented by a call."""
+    if tool_name != "terminal":
+        return tool_name
+    command = _command_text(tool_name, args)
+    if not command:
+        return "other"
+    for name, pattern in _COMMAND_CLASS_PATTERNS:
+        if pattern.search(command):
+            return name
+    return "other"
+
+
+def classify_stderr_class(result: str | None) -> str:
+    if not result:
+        return "empty"
+    lower = result[:2000].lower()
+    if "permission denied" in lower:
+        return "permission_denied"
+    if "no such file" in lower or "cannot access" in lower:
+        return "missing_path"
+    if any(marker in lower for marker in _NO_MATCH_MARKERS):
+        return "no_matches"
+    data = safe_json_loads(result)
+    if isinstance(data, dict):
+        stderr = str(data.get("stderr") or "").strip()
+        if not stderr:
+            return "empty_stderr"
+    return "other"
+
+
+def classify_failure_class(result: str | None) -> str:
+    if looks_like_missing_path_failure(result):
+        lower = (result or "")[:2000].lower()
+        if "permission denied" in lower:
+            return "permission"
+        return "missing_path"
+    if looks_like_no_match_failure(result):
+        return "no_matches"
+    data = safe_json_loads(result or "")
+    if isinstance(data, dict) and data.get("exit_code") not in (None, 0):
+        return "exit_nonzero"
+    return "other"
+
+
+def build_probe_identity(
+    tool_name: str, args: Mapping[str, Any] | None
+) -> FailureSignature | None:
+    """Build a probe identity from args alone (no result yet)."""
+    target = _preferred_target(tool_name, args)
+    if not target and tool_name == "terminal":
+        # Still track command-class-only probes when no abs path is present.
+        command_class = classify_command_class(tool_name, args)
+        if command_class == "other":
+            return None
+        target = f"cmd:{command_class}"
+    elif not target:
+        return None
+    return FailureSignature(
+        tool=tool_name,
+        command_class=classify_command_class(tool_name, args),
+        target=target,
+        failure_class="unknown",
+        exit_code="",
+        stderr_class="",
+    )
+
+
+def build_failure_signature(
+    tool_name: str,
+    args: Mapping[str, Any] | None,
+    result: str | None,
+) -> FailureSignature | None:
+    """Construct a normalized failure signature when the result is trackable."""
+    if not is_trackable_probe_failure(tool_name, args, result):
+        return None
+    probe = build_probe_identity(tool_name, args)
+    if probe is None:
+        return None
+    exit_code = ""
+    data = safe_json_loads(result or "")
+    if isinstance(data, dict) and data.get("exit_code") is not None:
+        exit_code = str(data.get("exit_code"))
+    return FailureSignature(
+        tool=probe.tool,
+        command_class=probe.command_class,
+        target=probe.target,
+        failure_class=classify_failure_class(result),
+        exit_code=exit_code,
+        stderr_class=classify_stderr_class(result),
+    )
+
+
+def is_trackable_probe_failure(
+    tool_name: str,
+    args: Mapping[str, Any] | None,
+    result: str | None,
+) -> bool:
+    """Whether this failure should feed the equivalent-probe / strategy-pivot budget."""
+    if looks_like_missing_path_failure(result):
+        return True
+    command_class = classify_command_class(tool_name, args)
+    if command_class in {"grep", "ripgrep", "find", "fd", "ls", "git", "cat"} and (
+        looks_like_no_match_failure(result) or looks_like_missing_path_failure(result)
+    ):
+        return True
+    return False
 
 
 def extract_absolute_path_targets(tool_name: str, args: Mapping[str, Any] | None) -> tuple[str, ...]:
@@ -578,14 +1104,28 @@ def extract_absolute_path_targets(tool_name: str, args: Mapping[str, Any] | None
 
 def equivalent_failure_key(tool_name: str, args: Mapping[str, Any] | None) -> str | None:
     """Stable key for 'same missing path, different command syntax' retries."""
+    target = _preferred_target(tool_name, args)
+    if not target:
+        return None
+    return f"{tool_name}:{target}"
+
+
+def _preferred_target(tool_name: str, args: Mapping[str, Any] | None) -> str | None:
     targets = extract_absolute_path_targets(tool_name, args)
     if not targets:
         return None
-    # Prefer the first /root or migration-stale target; otherwise the first abs path.
     preferred = next((t for t in targets if t.startswith("/root") or "/hermes" in t), targets[0])
-    # Collapse trailing file vs directory variations of the same stem when obvious.
-    normalized = preferred.rstrip("/")
-    return f"{tool_name}:{normalized}"
+    return preferred.rstrip("/")
+
+
+def _command_text(tool_name: str, args: Mapping[str, Any] | None) -> str:
+    args = _coerce_args(args)
+    if tool_name == "terminal":
+        for key in ("command", "cmd"):
+            value = args.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
 
 
 def _coerce_args(args: Mapping[str, Any] | None) -> Mapping[str, Any]:
@@ -634,6 +1174,16 @@ def _positive_int(value: Any, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return parsed if parsed >= 1 else default
+
+
+def _nonnegative_int(value: Any, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= 0 else default
 
 
 def _sha256(value: str) -> str:

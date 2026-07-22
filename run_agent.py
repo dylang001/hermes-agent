@@ -6216,12 +6216,45 @@ class AIAgent:
 
     def _toolguard_controlled_halt_response(self, decision: ToolGuardrailDecision) -> str:
         tool = decision.tool_name or "a tool"
+        if decision.code == "strategy_pivots_exhausted":
+            return (
+                f"I exhausted recovery strategies for {tool} "
+                f"({decision.code}) after {decision.count} equivalent failures / "
+                "strategy pivots. Remaining blockers look external (permissions, "
+                "credentials, or a destructive approval boundary) — please advise."
+            )
         return (
             f"I stopped retrying {tool} because it hit the tool-call guardrail "
             f"({decision.code}) after {decision.count} repeated non-progressing "
             "attempts. The last tool result explains the blocker; the next step is "
             "to change strategy instead of repeating the same call."
         )
+
+    def _emit_tool_guardrail_telemetry(self) -> None:
+        """Persist recovery-oriented guardrail events for false-positive analysis."""
+        drain = getattr(self._tool_guardrails, "drain_telemetry", None)
+        if not callable(drain):
+            return
+        events = drain()
+        if not events:
+            return
+        try:
+            from hermes_constants import get_hermes_home
+            import time
+
+            log_path = get_hermes_home() / "logs" / "tool_guardrail_recovery.jsonl"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            session_id = getattr(self, "session_id", None) or ""
+            with open(log_path, "a", encoding="utf-8") as fh:
+                for event in events:
+                    row = {
+                        **event,
+                        "ts": time.time(),
+                        "session_id": session_id,
+                    }
+                    fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        except Exception as exc:
+            logger.debug("tool guardrail telemetry write failed: %s", exc)
 
     def _append_guardrail_observation(
         self,
@@ -6237,14 +6270,18 @@ class AIAgent:
             function_result,
             failed=failed,
         )
-        if decision.action in {"warn", "halt"}:
+        if decision.action in {"warn", "halt", "strategy_change"}:
             function_result = append_toolguard_guidance(function_result, decision)
         if decision.should_halt:
             self._set_tool_guardrail_halt(decision)
+        self._emit_tool_guardrail_telemetry()
         return function_result
 
     def _guardrail_block_result(self, decision: ToolGuardrailDecision) -> str:
-        self._set_tool_guardrail_halt(decision)
+        # strategy_change blocks the probe locally without ending the turn.
+        if decision.should_halt:
+            self._set_tool_guardrail_halt(decision)
+        self._emit_tool_guardrail_telemetry()
         return toolguard_synthetic_result(decision)
 
     def _execute_tool_calls(self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:

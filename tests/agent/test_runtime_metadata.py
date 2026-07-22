@@ -103,14 +103,15 @@ def test_discover_missing_directory_under_writable_roots(tmp_path):
     assert found == [str(target.resolve())]
 
 
-def test_equivalent_terminal_path_failures_halt_after_two():
+def test_equivalent_terminal_path_failures_require_strategy_change_after_two():
     controller = ToolCallGuardrailController(
         ToolCallGuardrailConfig(
             hard_stop_enabled=True,
+            planner_recovery_enabled=True,
             same_tool_failure_halt_after=99,
             exact_failure_block_after=99,
             equivalent_failure_warn_after=1,
-            equivalent_failure_halt_after=2,
+            equivalent_retry_limit=2,
         )
     )
     fail = '{"exit_code":2,"stdout":"","stderr":"ls: cannot access \'/root/audit/\': Permission denied"}'
@@ -131,16 +132,49 @@ def test_equivalent_terminal_path_failures_halt_after_two():
         fail,
         failed=True,
     )
-    assert second.action == "halt"
-    assert second.code == "equivalent_path_failure_halt"
+    assert second.action == "strategy_change"
+    assert second.code == "strategy_change_required"
     assert second.count == 2
+    assert second.should_halt is False
+    assert second.recovery is not None
+    assert second.recovery.get("StrategyChangeRequired") is True
 
     blocked = controller.before_call(
         "terminal",
         {"command": "pwd; ls -la /root/audit"},
     )
-    assert blocked.action == "block"
-    assert blocked.code == "equivalent_path_failure_block"
+    assert blocked.action == "strategy_change"
+    assert blocked.code == "strategy_change_required"
+    assert blocked.should_halt is False
+    assert blocked.allows_execution is False
+
+
+def test_equivalent_terminal_path_failures_legacy_halt_when_recovery_disabled():
+    controller = ToolCallGuardrailController(
+        ToolCallGuardrailConfig(
+            hard_stop_enabled=True,
+            planner_recovery_enabled=False,
+            same_tool_failure_halt_after=99,
+            exact_failure_block_after=99,
+            equivalent_failure_warn_after=1,
+            equivalent_retry_limit=2,
+        )
+    )
+    fail = '{"exit_code":2,"stdout":"","stderr":"ls: cannot access \'/root/audit/\': Permission denied"}'
+    controller.after_call(
+        "terminal",
+        {"command": "ls -la /root/audit/ 2>/dev/null"},
+        fail,
+        failed=True,
+    )
+    second = controller.after_call(
+        "terminal",
+        {"command": 'echo "ok"; ls /root/audit/'},
+        fail,
+        failed=True,
+    )
+    assert second.action == "halt"
+    assert second.code == "equivalent_path_failure_halt"
 
 
 def test_extract_absolute_path_targets_from_terminal_command():
