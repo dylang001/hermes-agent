@@ -3605,6 +3605,9 @@ def _compress_session_history(
     approx_tokens: int | None = None,
     before_messages: list | None = None,
     history_version: int | None = None,
+    *,
+    wait_for_peer: bool = True,
+    wait_timeout_seconds: float = 180.0,
 ) -> tuple[int, dict]:
     from agent.model_metadata import estimate_request_tokens_rough
 
@@ -3618,6 +3621,7 @@ def _compress_session_history(
             before_messages = list(session.get("history", []))
             history_version = int(session.get("history_version", 0))
     history = before_messages
+    parent_sid = str(getattr(agent, "session_id", "") or session.get("session_key") or "")
     if len(history) < 4:
         usage = _get_usage(agent)
         return 0, usage
@@ -3634,18 +3638,94 @@ def _compress_session_history(
     # cached prompt (which already contains the agent identity block)
     # makes the rebuild append the identity a second time. Mirrors the
     # CLI's _manual_compress fix for issue #15281.
+    # force=True: manual /compress must bypass summary-failure cooldown
+    # (parity with CLI + gateway slash_commands). force=True does NOT
+    # bypass the compression lock — only one compressor may rotate.
     compressed, _ = agent._compress_context(
         history,
         None,
         approx_tokens=approx_tokens,
         focus_topic=focus_topic or None,
+        force=True,
     )
+    skip_reason = getattr(agent, "_last_compress_skip_reason", None)
+    if not skip_reason:
+        skip_reason = getattr(
+            getattr(agent, "context_compressor", None),
+            "_last_compress_skip_reason",
+            None,
+        )
+
+    # Concurrent loser / already-rotated: attach to the winner instead of
+    # reporting a false no-op or bumping history_version over the winner.
+    if wait_for_peer and skip_reason in {"concurrent_lock", "already_rotated"}:
+        from agent.manual_compression_wait import (
+            mark_agent_attached_to_winner,
+            wait_for_peer_compression,
+        )
+
+        sid = str(session.get("session_id") or "")
+        _status_update(
+            sid,
+            "compressing",
+            "⏳ compression in progress on another path — waiting for winner…",
+        )
+        wait = wait_for_peer_compression(
+            session_db=getattr(agent, "_session_db", None),
+            parent_session_id=parent_sid,
+            agent=agent,
+            timeout_seconds=wait_timeout_seconds,
+            before_message_count=len(history),
+            assume_lock_held=True,
+        )
+        if wait.status == "completed" and wait.messages and wait.session_id:
+            mark_agent_attached_to_winner(
+                agent, winner_session_id=wait.session_id, messages=wait.messages
+            )
+            with session["history_lock"]:
+                # Adopt the winner's *persisted* tip. Do not CAS against the
+                # pre-wait history_version (that would reject a legitimate
+                # adopt). Bump history_version only as local tip-invalidation
+                # so the UI reloads — this is not a compression write.
+                session["history"] = list(wait.messages)
+                session["history_version"] = int(session.get("history_version", 0)) + 1
+            usage = _get_usage(agent)
+            return max(0, len(history) - len(wait.messages)), usage
+
+        # Timed out / failed — explicit skip; do not mutate history or version.
+        try:
+            agent._last_compress_skip_reason = (
+                "compression_still_running"
+                if wait.status == "timeout"
+                else "peer_failed"
+            )
+            agent._last_compress_peer_detail = wait.detail
+        except Exception:
+            pass
+        usage = _get_usage(agent)
+        return 0, usage
+
     with session["history_lock"]:
+        if skip_reason in {"concurrent_lock", "already_rotated"}:
+            # wait_for_peer disabled — still refuse to clobber history / version.
+            usage = _get_usage(agent)
+            return 0, usage
         if int(session.get("history_version", 0)) != history_version:
             # External mutation during compaction — drop the compressed
             # result so we don't clobber concurrent edits.
+            try:
+                agent._last_compress_skip_reason = "history_race"
+            except Exception:
+                pass
+            _cc = getattr(agent, "context_compressor", None)
+            if _cc is not None:
+                try:
+                    _cc._last_compress_skip_reason = "history_race"
+                except Exception:
+                    pass
             usage = _get_usage(agent)
             return 0, usage
+        # Only the lock-owning compressor reaches this CAS write.
         session["history"] = compressed
         session["history_version"] = history_version + 1
     usage = _get_usage(agent)
@@ -9108,12 +9188,22 @@ def _(rid, params: dict) -> dict:
             )
             agent = session["agent"]
             _sync_session_key_after_compress(sid, session)
+            from agent.manual_compression_feedback import build_compression_retention
+
+            retention = build_compression_retention(
+                before_messages,
+                agent=agent,
+                system_prompt=_sys_prompt,
+                tools=_tools,
+            )
             summary = summarize_manual_compression(
                 before_messages,
                 messages,
                 before_tokens,
                 after_tokens,
                 compression_state=getattr(agent, "context_compressor", None),
+                retention=retention,
+                agent=agent,
             )
             info = _session_info(agent, session)
             _emit("session.info", sid, info)
@@ -14066,12 +14156,22 @@ def _(rid, params: dict) -> dict:
                 else 0
             )
             _sync_session_key_after_compress(sid, session)
+            from agent.manual_compression_feedback import build_compression_retention
+
+            retention = build_compression_retention(
+                before_messages,
+                agent=_agent,
+                system_prompt=_sys_prompt,
+                tools=_tools,
+            )
             summary = summarize_manual_compression(
                 before_messages,
                 after_messages,
                 before_tokens,
                 after_tokens,
                 compression_state=getattr(_agent, "context_compressor", None),
+                retention=retention,
+                agent=_agent,
             )
             _emit("session.info", sid, _session_info(session.get("agent"), session))
             return _ok(
@@ -14079,7 +14179,15 @@ def _(rid, params: dict) -> dict:
                 {
                     "type": "exec",
                     "output": "\n".join(
-                        filter(None, [summary["headline"], summary["token_line"], summary.get("note")])
+                        summary.get("report_lines")
+                        or filter(
+                            None,
+                            [
+                                summary["headline"],
+                                summary["token_line"],
+                                summary.get("note"),
+                            ],
+                        )
                     ),
                 },
             )
@@ -15118,17 +15226,24 @@ def _mirror_slash_side_effects(sid: str, session: dict, command: str) -> str:
                 else 0
             )
             _emit("session.info", sid, _session_info(agent, session))
+            from agent.manual_compression_feedback import build_compression_retention
+
+            _retention = build_compression_retention(
+                _before_messages,
+                agent=agent,
+                system_prompt=_sys_prompt,
+                tools=_tools,
+            )
             _fb = summarize_manual_compression(
                 _before_messages,
                 _after_messages,
                 _before_tokens,
                 _after_tokens,
                 compression_state=getattr(agent, "context_compressor", None),
+                retention=_retention,
+                agent=agent,
             )
-            _lines = [_fb["headline"], _fb["token_line"]]
-            if _fb.get("note"):
-                _lines.append(_fb["note"])
-            return "\n".join(_lines)
+            return "\n".join(_fb.get("report_lines") or [_fb["headline"], _fb["token_line"]])
         elif name == "fast" and agent:
             mode = arg.lower()
             if mode in {"fast", "on"}:
