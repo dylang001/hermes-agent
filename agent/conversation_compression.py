@@ -750,6 +750,23 @@ def compress_context(
     # The memory-provider context handoff below is intentionally Hermes-only:
     # the app server does not expose its native summary prompt, so there is no
     # truthful injection point for ``on_pre_compress()`` return text here.
+    # Clear skip markers so callers can distinguish a true no-op from a
+    # concurrent-lock / already-rotated early return (manual /compress UX).
+    try:
+        agent._last_compress_skip_reason = None
+        agent._last_compress_attached_to_winner = False
+        agent._last_compress_winner_session_id = None
+        agent._last_compress_peer_detail = None
+    except Exception:
+        pass
+    _cc0 = getattr(agent, "context_compressor", None)
+    if _cc0 is not None:
+        try:
+            _cc0._last_compress_skip_reason = None
+            _cc0._last_compress_attached_to_winner = False
+        except Exception:
+            pass
+
     if getattr(agent, "api_mode", None) == "codex_app_server":
         return _compress_context_via_codex_app_server(
             agent,
@@ -934,6 +951,16 @@ def compress_context(
                 _lock_sid, existing,
             )
             _lock_holder = None  # don't release a lock we don't own
+            try:
+                agent._last_compress_skip_reason = "concurrent_lock"
+            except Exception:
+                pass
+            _cc_skip = getattr(agent, "context_compressor", None)
+            if _cc_skip is not None:
+                try:
+                    _cc_skip._last_compress_skip_reason = "concurrent_lock"
+                except Exception:
+                    pass
             # Surface to the user once — quiet for downstream auto-compress loops
             if getattr(agent, "_last_compression_lock_warning_sid", None) != _lock_sid:
                 agent._last_compression_lock_warning_sid = _lock_sid
@@ -995,6 +1022,16 @@ def compress_context(
                 "another compression path",
                 _lock_sid,
             )
+            try:
+                agent._last_compress_skip_reason = "already_rotated"
+            except Exception:
+                pass
+            _cc_rot = getattr(agent, "context_compressor", None)
+            if _cc_rot is not None:
+                try:
+                    _cc_rot._last_compress_skip_reason = "already_rotated"
+                except Exception:
+                    pass
             _release_lock()
             _existing_sp = getattr(agent, "_cached_system_prompt", None)
             if not _existing_sp:
