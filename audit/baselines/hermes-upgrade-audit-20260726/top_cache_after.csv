@@ -1,0 +1,16 @@
+id,day,source,model,input_tokens,cache_read_tokens,output_tokens,api_calls,tool_calls,end_reason,title
+20260722_081922_5d7dc8,2026-07-22,desktop,nvidia/nemotron-3-ultra-550b-a55b,2701959,39839673,129505,169,190,compression,Hermes Revenue Intelligence OS Architecture
+20260724_063646_2348ae,2026-07-24,desktop,nvidia/nemotron-3-ultra-550b-a55b,1724653,14775040,28683,76,109,,Upwork Market Analysis and Positioning Strategy #2
+20260722_111359_6ecc60,2026-07-22,desktop,nvidia/nemotron-3-super-120b-a12b,908255,11236864,19045,47,203,compression,Hermes Revenue Intelligence OS Architecture #2
+20260724_045423_5a0440,2026-07-24,desktop,nvidia/nemotron-3-super-120b-a12b,2308284,7270016,82377,73,64,compression,Upwork Market Analysis and Positioning Strategy
+20260724_024754_aeedfb,2026-07-24,desktop,nvidia/nemotron-3-ultra-550b-a55b,516865,5131008,7574,61,60,ws_orphan_reap,LinkedIn Automation Using OpenCLI
+20260722_122127_8fabcb,2026-07-22,desktop,nvidia/nemotron-3-ultra-550b-a55b,1331945,4608768,23755,43,102,ws_orphan_reap,Hermes Revenue Intelligence OS Architecture #3
+20260722_083009_94131a,2026-07-22,subagent,minimax-m3,85246,1872541,17175,35,37,agent_close,
+20260722_082246_5331fb,2026-07-22,subagent,minimax-m3,128380,1671001,32235,23,36,agent_close,
+cron_675506b90337_20260722_070023,2026-07-22,cron,minimax-m3,69860,1360062,6468,31,49,cron_complete,knowledge-os-daily · Jul 22 07:02
+20260722_082247_824292,2026-07-22,subagent,minimax-m3,215529,1355142,25104,23,65,agent_close,
+20260723_084104_576df3,2026-07-23,desktop,nvidia/nemotron-3-ultra-550b-a55b,250565,948736,9018,20,18,ws_orphan_reap,Cannot install jcode into Hermes different architectures
+20260722_082244_e75d3c,2026-07-22,subagent,minimax-m3,471394,896203,23714,10,21,agent_close,
+cron_bde6f3326c60_20260722_120042,2026-07-22,cron,minimax-m3,53866,600659,7556,18,20,cron_complete,knowledge-os-lint · Jul 22 12:02
+20260722_082245_5bcea1,2026-07-22,subagent,minimax-m3,285912,557941,15207,9,18,agent_close,
+cron_bde6f3326c60_20260723_060043,2026-07-23,cron,minimax-m3,44372,435834,3980,14,14,cron_complete,knowledge-os-lint · Jul 23 06:01

@@ -1,0 +1,16 @@
+id,day,source,model,input_tokens,cache_read_tokens,output_tokens,api_calls,tool_calls,end_reason,title
+20260717_195908_85759f,2026-07-17,desktop,nvidia/nemotron-3-ultra-550b-a55b,12023184,111206656,174569,404,454,compression,
+20260719_054629_cd8af7,2026-07-19,desktop,nvidia/nemotron-3-ultra-550b-a55b,7233889,101305856,153279,470,460,ws_orphan_reap,
+20260719_152309_c5523d,2026-07-19,desktop,minimax-m3,2005813,70142352,227842,168,575,compression,Twine Job Scraper Setup #86
+20260721_095815_dc8dc7,2026-07-21,desktop,minimax-m3,1188284,42565837,118073,206,221,compression,Orchidea Prospecting System Setup
+20260721_194225_6062ac,2026-07-21,desktop,minimax-m3,1831946,35127742,79673,94,170,compression,Orchidea Operating Readiness Audit #2
+20260717_121235_dcc530,2026-07-17,desktop,nvidia/nemotron-3-ultra-550b-a55b,3287715,34830688,132143,197,357,compression,Twine Job Scraper Setup
+20260720_113205_4aabb3,2026-07-20,desktop,minimax-m3,2035223,32366526,127376,249,288,ws_orphan_reap,Opening LinkedIn via hanzi
+20260720_192005_25c1eb,2026-07-20,desktop,minimax-m3,519058,28159378,90120,124,300,compression,LinkedIn Automation Without Paid APIs
+20260717_143223_b87075,2026-07-17,desktop,nvidia/nemotron-3-super-120b-a12b,1611451,27791872,76074,204,214,compression,
+20260720_085844_8c25c8,2026-07-20,desktop,minimax-m3,1629461,21614718,105639,156,220,ws_orphan_reap,Fresh Twine Job Scrape
+20260720_212015_e21423,2026-07-20,desktop,minimax-m3,1278349,20824791,41804,51,171,compression,LinkedIn Automation Without Paid APIs #2
+20260717_201113_68e65e,2026-07-17,desktop,minimax-m3,2485166,17829628,53222,183,180,compression,Twine Job Scraper Setup #2
+20260718_105957_67a1ad,2026-07-18,desktop,grok-4.5,4384966,17708912,16862,41,41,compression,
+20260718_103935_10b90f,2026-07-18,desktop,kimi-k3,1396531,15440896,46613,80,82,ws_orphan_reap,
+20260720_220347_39707f,2026-07-20,desktop,minimax-m3,1262248,12959166,42978,43,184,compression,LinkedIn Automation Without Paid APIs #3
