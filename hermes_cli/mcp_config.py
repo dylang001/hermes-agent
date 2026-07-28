@@ -537,7 +537,9 @@ def cmd_mcp_add(args):
         oauth_ok = False
         try:
             from tools.mcp_oauth_manager import get_manager
-            oauth_auth = get_manager().get_or_build_provider(name, url, None)
+            oauth_auth = get_manager().get_or_build_provider(
+                name, url, server_config.get("oauth")
+            )
             if oauth_auth:
                 server_config["auth"] = "oauth"
                 _success("OAuth configured (tokens will be acquired on first connection)")
@@ -859,10 +861,17 @@ def _reauth_oauth_server(name: str, server_config: dict) -> bool:
 
     # Probe triggers the OAuth flow (browser redirect + callback capture).
     try:
+        # ``hermes mcp login`` is explicitly user-initiated even when stdin
+        # is not a TTY (Desktop / agent-spawned terminals). Preserve the
+        # configured interactive timeout, falling back to the callback window
+        # only when the server does not define one.
+        from tools.mcp_oauth import force_interactive_oauth
+
         login_timeout = _oauth_login_probe_timeout(server_config)
-        tools = _probe_single_server(
-            name, server_config, connect_timeout=login_timeout
-        )
+        with force_interactive_oauth():
+            tools = _probe_single_server(
+                name, server_config, connect_timeout=login_timeout
+            )
         # A clean probe is NOT proof of authentication. Some MCP servers
         # (notably Google's official Drive server) serve initialize +
         # tools/list WITHOUT auth, so the probe lists tools even when the
@@ -899,8 +908,16 @@ def _reauth_oauth_server(name: str, server_config: dict) -> bool:
             _success("Authenticated (server reported no tools)")
         return True
     except Exception as exc:
+        try:
+            from tools.mcp_oauth import humanize_oauth_registration_error
+
+            humanized = humanize_oauth_registration_error(
+                name, exc, server_url=url
+            )
+        except Exception:
+            humanized = None
         stage = _oauth_stage_for_server(name)
-        detail = _sanitize_oauth_error_message(str(exc))
+        detail = _sanitize_oauth_error_message(str(humanized or exc))
         if stage:
             _error(f"Authentication failed during OAuth stage '{stage}': {detail}")
         else:
