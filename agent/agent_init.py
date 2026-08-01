@@ -118,7 +118,7 @@ def _provider_default_routes(provider: str) -> set[str]:
         from hermes_cli.providers import HERMES_OVERLAYS, get_provider
 
         overlay = HERMES_OVERLAYS.get(provider)
-        provider_def = get_provider(provider)
+        provider_def = get_provider(provider, allow_network=False)
         for value in (
             getattr(overlay, "base_url_override", ""),
             getattr(provider_def, "base_url", ""),
@@ -455,8 +455,7 @@ def init_agent(
     command: str = None,
     args: list[str] | None = None,
     model: str = "",
-    max_iterations: int = 500,  # Default tool-calling iterations (shared with subagents)
-    tool_delay: float = 1.0,
+    max_iterations: int = 90,  # Default tool-calling iterations (shared with subagents)
     enabled_toolsets: List[str] = None,
     disabled_toolsets: List[str] = None,
     save_trajectories: bool = False,
@@ -529,8 +528,7 @@ def init_agent(
         requested_provider (str): Original provider identity before runtime canonicalization
         api_mode (str): API mode override: "chat_completions" or "codex_responses"
         model (str): Model name to use (default: "anthropic/claude-opus-4.6")
-        max_iterations (int): Maximum number of tool calling iterations (default: 500)
-        tool_delay (float): Delay between tool calls in seconds (default: 1.0)
+        max_iterations (int): Maximum number of tool calling iterations (default: 90)
         enabled_toolsets (List[str]): Only enable tools from these toolsets (optional)
         disabled_toolsets (List[str]): Disable tools from these toolsets (optional)
         save_trajectories (bool): Whether to save conversation trajectories to JSONL files (default: False)
@@ -576,7 +574,6 @@ def init_agent(
     # Shared iteration budget — parent creates, children inherit.
     # Consumed by every LLM turn across parent + all subagents.
     agent.iteration_budget = iteration_budget or IterationBudget(max_iterations)
-    agent.tool_delay = tool_delay
     agent.save_trajectories = save_trajectories
     agent.verbose_logging = verbose_logging
     agent.quiet_mode = quiet_mode
@@ -762,9 +759,6 @@ def init_agent(
     # Tool execution state — allows _vprint during tool execution
     # even when stream consumers are registered (no tokens streaming then)
     agent._executing_tools = False
-    # Track B: runtime waist between planner turns and tool execution.
-    # Lazy-created on first use if unset; init here for a stable attribute.
-    agent._execution_coordinator = None
     agent._tool_guardrails = ToolCallGuardrailController()
     agent._tool_guardrail_halt_decision: ToolGuardrailDecision | None = None
 
@@ -840,18 +834,13 @@ def init_agent(
     agent._use_prompt_caching, agent._use_native_cache_layout = (
         agent._anthropic_prompt_cache_policy()
     )
-    # Transport-declared capability (NONE / AUTO / EXPLICIT). Stashed by the
-    # policy helper; used for session telemetry and hermes insights.
-    agent._prompt_cache_capability = getattr(
-        agent, "_prompt_cache_capability", None
-    )
     # Anthropic supports "5m" (default) and "1h" cache TTL tiers. Read from
     # config.yaml under prompt_caching.cache_ttl; unknown values keep "5m".
     # 1h tier costs 2x on write vs 1.25x for 5m, but amortizes across long
     # sessions with >5-minute pauses between turns (#14971).
     agent._cache_ttl = "5m"
     try:
-        from hermes_cli.config import load_config as _load_pc_cfg
+        from hermes_cli.config import load_config_readonly as _load_pc_cfg
 
         _pc_cfg = _load_pc_cfg().get("prompt_caching", {}) or {}
         _ttl = _pc_cfg.get("cache_ttl", "5m")
@@ -877,19 +866,6 @@ def init_agent(
     agent._last_activity_desc: str = "initializing"
     agent._current_tool: str | None = None
     agent._api_call_count: int = 0
-    agent._intelligence_policy_enabled = False
-    agent._policy_run_observer = None
-    agent._intelligence_memory_policy_enabled = False
-    agent._intelligence_memory_policy_config = {}
-    agent._intelligence_memory_policy_last_decision = None
-    agent._intelligence_tool_policy_enabled = False
-    agent._intelligence_tool_policy_config = {}
-    agent._intelligence_tool_policy_last_decision = None
-    agent._intelligence_evidence_compaction_enabled = False
-    agent._intelligence_evidence_compaction_config = {}
-    agent._intelligence_evidence_compaction_stats = None
-    agent._intelligence_failure_policy_enabled = False
-    agent._intelligence_failure_policy_last_decision = None
     # Opt-out flag for the between-turns MCP tool refresh (build_turn_context).
     # Set on internal forks (e.g. background_review) that must keep ``tools[]``
     # byte-identical to a parent for provider cache parity.
@@ -908,8 +884,10 @@ def init_agent(
     # report cumulative micros spent.  Surfaced behind HERMES_DEV_CREDITS.
     agent._credits_state = None
     agent._credits_session_start_micros = None
-    # Threshold-notice latch (L4): active sticky-notice keys + the warn90 crossing gate.
-    agent._credits_latch = {"active": set(), "seen_below_90": False, "usage_band": None}
+    # Threshold-notice latch (L4): active sticky-notice keys + the crossing gates.
+    from agent.credits_tracker import new_credits_latch
+
+    agent._credits_latch = new_credits_latch()
 
     # OpenRouter response cache hit counter — incremented when
     # X-OpenRouter-Cache-Status: HIT is seen in streaming response headers.
@@ -1112,7 +1090,7 @@ def init_agent(
         # Guardrail config — read from config.yaml at init time.
         agent._bedrock_guardrail_config = None
         try:
-            from hermes_cli.config import load_config as _load_br_cfg
+            from hermes_cli.config import load_config_readonly as _load_br_cfg
             _gr = _load_br_cfg().get("bedrock", {}).get("guardrail", {})
             if _gr.get("guardrail_identifier") and _gr.get("guardrail_version"):
                 agent._bedrock_guardrail_config = {
@@ -1183,8 +1161,8 @@ def init_agent(
                 client_kwargs["default_headers"] = hermes_xai_default_headers()
             elif "default_headers" not in client_kwargs:
                 # Fall back to profile.default_headers for providers that
-                # declare custom headers (e.g. Kimi User-Agent on non-kimi.com
-                # endpoints).
+                # declare custom headers (e.g. Vercel AI Gateway attribution,
+                # Kimi User-Agent on non-kimi.com endpoints).
                 try:
                     from providers import get_provider_profile as _gpf
                     _ph = _gpf(agent.provider)
@@ -1243,23 +1221,20 @@ def init_agent(
                         _fb_entries = [fallback_model]
                     _fb_resolved = False
                     for _fb in _fb_entries:
-                        _fb_explicit_key = (_fb.get("api_key") or "").strip() or None
-                        if not _fb_explicit_key:
-                            _fb_key_env = (_fb.get("key_env") or _fb.get("api_key_env") or "").strip()
-                            if _fb_key_env:
-                                try:
-                                    from hermes_cli.config import get_env_value_prefer_dotenv
-
-                                    _fb_explicit_key = (
-                                        get_env_value_prefer_dotenv(_fb_key_env) or ""
-                                    ).strip() or None
-                                except Exception:
-                                    _fb_explicit_key = os.getenv(_fb_key_env, "").strip() or None
-                        _fb_client, _fb_model = resolve_provider_client(
-                            _fb["provider"], model=_fb["model"], raw_codex=True,
-                            explicit_base_url=_fb.get("base_url"),
-                            explicit_api_key=_fb_explicit_key,
-                        )
+                        try:
+                            from hermes_cli.fallback_config import resolve_entry_api_key
+                            _fb_explicit_key = resolve_entry_api_key(_fb)
+                            _fb_client, _fb_model = resolve_provider_client(
+                                _fb["provider"], model=_fb["model"], raw_codex=True,
+                                explicit_base_url=_fb.get("base_url"),
+                                explicit_api_key=_fb_explicit_key,
+                            )
+                        except Exception as _fb_exc:
+                            logger.debug(
+                                "Init-time fallback entry %s failed: %s",
+                                _fb.get("provider"), _fb_exc,
+                            )
+                            continue
                         if _fb_client is not None:
                             agent.provider = _fb["provider"]
                             agent.model = _fb_model or _fb["model"]
@@ -1494,7 +1469,17 @@ def init_agent(
 
         set_current_session_id(agent.session_id)
     except Exception:
-        os.environ["HERMES_SESSION_ID"] = agent.session_id
+        # Preserve the root-agent legacy fallback, but never let delegated
+        # construction publish a child ID process-wide even if the ContextVar
+        # bridge itself failed to import.
+        try:
+            from agent.delegation_context import is_delegated_child_context
+
+            delegated_child = is_delegated_child_context()
+        except Exception:
+            delegated_child = False
+        if not delegated_child:
+            os.environ["HERMES_SESSION_ID"] = agent.session_id
 
     # Session logs go into ~/.hermes/sessions/ alongside gateway sessions
     hermes_home = get_hermes_home()
@@ -1506,7 +1491,7 @@ def init_agent(
     # reads the JSON files directly.  See run_agent._save_session_log.
     agent._session_json_enabled = False
     try:
-        from hermes_cli.config import load_config as _load_sess_cfg
+        from hermes_cli.config import load_config_readonly as _load_sess_cfg
         _sess_cfg = (_load_sess_cfg().get("sessions") or {})
         agent._session_json_enabled = bool(_sess_cfg.get("write_json_snapshots", False))
     except Exception:
@@ -1570,19 +1555,6 @@ def init_agent(
         "reasoning_config": reasoning_config,
         "max_tokens": max_tokens,
     }
-    # Persist declared prompt-cache capability for insights / debugging.
-    _pc_cap = getattr(agent, "_prompt_cache_capability", None)
-    if _pc_cap is not None:
-        try:
-            agent._session_init_model_config["prompt_cache"] = _pc_cap.to_telemetry()
-            agent._session_init_model_config["prompt_cache"]["enabled"] = bool(
-                agent._use_prompt_caching
-            )
-            agent._session_init_model_config["prompt_cache"]["markers_emitted"] = bool(
-                agent._use_prompt_caching
-            )
-        except Exception:
-            pass
     
     # In-memory todo list for task planning (one per agent/session)
     from tools.todo_tool import TodoStore
@@ -1590,7 +1562,7 @@ def init_agent(
     
     # Load config once for memory, skills, and compression sections
     try:
-        from hermes_cli.config import load_config as _load_agent_config
+        from hermes_cli.config import load_config_readonly as _load_agent_config
         _agent_cfg = _load_agent_config()
     except Exception:
         _agent_cfg = {}
@@ -1873,10 +1845,8 @@ def init_agent(
     except Exception:
         pass
     compression_enabled = str(_compression_cfg.get("enabled", True)).lower() in {"true", "1", "yes"}
-    # Preserve production continuity-first defaults (0.25 / 24) while adopting
-    # upstream's configurable max_attempts (#62605) and min_tail_user_messages.
-    compression_target_ratio = float(_compression_cfg.get("target_ratio", 0.25))
-    compression_protect_last = int(_compression_cfg.get("protect_last_n", 24))
+    compression_target_ratio = float(_compression_cfg.get("target_ratio", 0.20))
+    compression_protect_last = int(_compression_cfg.get("protect_last_n", 20))
     # Minimum REAL (actionable) user messages guaranteed to survive in the
     # uncompressed tail (compression.min_tail_user_messages).  Default 1
     # preserves current behavior exactly — the existing single-user tail
@@ -2006,6 +1976,31 @@ def init_agent(
     # load_config failure → {}), re-arming the pre-lease drift abort.
     compression_in_place = is_truthy_value(
         _compression_cfg.get("in_place"), default=True
+    )
+    # Opt-in (default False): a micro-compaction pass rewrites already-sent
+    # history every turn, which breaks the provider prompt-cache prefix on a
+    # per-turn cadence rather than at an episodic boundary. That is the cost
+    # `proactive_prune_min_reclaim_tokens` exists to amortize, so the feature
+    # stays off until an operator opts in and accepts the tradeoff.
+    compression_micro_compact = is_truthy_value(
+        _compression_cfg.get("micro_compact"), default=False
+    )
+    # How often a pass runs, in completed turns. Each pass rewrites
+    # already-sent history and costs one prompt-cache break, so this is the
+    # dial for how often that cost is paid: 1 = every turn (most aggressive
+    # reclaim), 5 = one break per five turns. Clamped to >= 1.
+    compression_micro_compact_every_n_turns = max(
+        1,
+        _parse_prune_int(_compression_cfg.get("micro_compact_every_n_turns", 1), 1),
+    )
+    # Rolling-summary defrag threshold, in tokens. Lived on the compressor as
+    # a hardcoded attribute with no path from config until now.
+    compression_micro_compact_defrag_tokens = max(
+        1,
+        _parse_prune_int(
+            _compression_cfg.get("micro_compact_defrag_threshold_tokens", 2000),
+            2000,
+        ),
     )
     codex_app_server_auto_compaction = str(
         _compression_cfg.get("codex_app_server_auto", "native") or "native"
@@ -2319,7 +2314,18 @@ def init_agent(
     # AFTER the custom_providers branch so per-model overrides aren't lost.
     agent._config_context_length = _config_context_length
 
-    agent._ensure_lmstudio_runtime_loaded(_config_context_length)
+    _lmstudio_runtime_context_length = agent._ensure_lmstudio_runtime_loaded(
+        _config_context_length
+    )
+    if agent._lmstudio_load_was_unverified(_lmstudio_runtime_context_length):
+        _ra().logger.warning(
+            "LM Studio model activation was rejected or completed without a "
+            "verifiable active context length; falling back to configured context"
+        )
+    _effective_context_length = agent._effective_lmstudio_context_length(
+        _config_context_length,
+        _lmstudio_runtime_context_length,
+    )
 
 
 
@@ -2396,7 +2402,7 @@ def init_agent(
             agent.model,
             base_url=agent.base_url,
             api_key=getattr(agent, "api_key", ""),
-            config_context_length=_config_context_length,
+            config_context_length=_effective_context_length,
             provider=agent.provider,
             custom_providers=_custom_providers,
         )
@@ -2431,7 +2437,7 @@ def init_agent(
             quiet_mode=agent.quiet_mode,
             base_url=agent.base_url,
             api_key=getattr(agent, "api_key", ""),
-            config_context_length=_config_context_length,
+            config_context_length=_effective_context_length,
             provider=agent.provider,
             api_mode=agent.api_mode,
             abort_on_summary_failure=compression_abort_on_summary_failure,
@@ -2451,106 +2457,32 @@ def init_agent(
             pass
     agent.compression_enabled = compression_enabled
     agent.compression_in_place = compression_in_place
+    # Apply micro-compaction settings to the compressor (feature is opt-in)
+    _cc = getattr(agent, "context_compressor", None)
+    if _cc is not None and hasattr(_cc, "_micro_compact_enabled"):
+        _cc._micro_compact_enabled = compression_micro_compact
+    if _cc is not None and hasattr(_cc, "_micro_compact_every_n_turns"):
+        _cc._micro_compact_every_n_turns = compression_micro_compact_every_n_turns
+    if _cc is not None and hasattr(_cc, "_micro_compact_defrag_threshold_tokens"):
+        _cc._micro_compact_defrag_threshold_tokens = (
+            compression_micro_compact_defrag_tokens
+        )
     agent.codex_app_server_auto_compaction = codex_app_server_auto_compaction
     agent.max_compression_attempts = compression_max_attempts
     agent.compression_idle_compact_after_seconds = (
         compression_idle_compact_after_seconds
     )
 
-    # Context Policy P0 — adaptive %-of-window governor + profile.
-    # Resolves after the compressor so we know the model window. Does not
-    # touch Execution Coordinator / prompt-cache capability layers.
-    try:
-        from agent.context_governor import load_resolved_governor_config
-
-        _ctx_for_gov = int(
-            getattr(agent.context_compressor, "context_length", 0) or 0
-        )
-        _plat = (getattr(agent, "platform", None) or "") or ""
-        _is_sub = bool(getattr(agent, "_parent_session_id", None))
-        _is_cron = _plat.lower() == "cron"
-        _gov_cfg = load_resolved_governor_config(
-            context_length=_ctx_for_gov,
-            platform=_plat,
-            is_subagent=_is_sub,
-            is_cron=_is_cron,
-        )
-        agent._context_governor_config = _gov_cfg
-        # Align compressor trigger / tail protect with profile when adaptive.
-        # Raise-only vs the compressor's already-resolved threshold so Codex
-        # gpt-5.x autoraise (e.g. 0.50→0.85) and the small-ctx 0.75 floor are
-        # never lowered by an interactive profile hint (0.70).
-        if (
-            _gov_cfg.budget_mode == "adaptive"
-            and _gov_cfg.compression_threshold is not None
-            and hasattr(agent.context_compressor, "threshold_percent")
-        ):
-            _prof_thresh = float(_gov_cfg.compression_threshold)
-            _eff_prof = agent.context_compressor._effective_threshold_percent(
-                agent.context_compressor.context_length, _prof_thresh
-            )
-            _current = float(
-                getattr(agent.context_compressor, "threshold_percent", 0.0) or 0.0
-            )
-            _eff = max(_current, _eff_prof)
-            if _eff > _current + 1e-9:
-                agent.context_compressor._configured_threshold_percent = max(
-                    float(
-                        getattr(
-                            agent.context_compressor,
-                            "_configured_threshold_percent",
-                            _prof_thresh,
-                        )
-                        or _prof_thresh
-                    ),
-                    _prof_thresh,
-                )
-                agent.context_compressor.threshold_percent = _eff
-                agent.context_compressor.threshold_tokens = (
-                    agent.context_compressor._compute_threshold_tokens(
-                        agent.context_compressor.context_length,
-                        _eff,
-                        getattr(agent.context_compressor, "max_tokens", None),
-                    )
-                )
-                _tr = float(
-                    getattr(agent.context_compressor, "summary_target_ratio", 0.25)
-                    or 0.25
-                )
-                agent.context_compressor.tail_token_budget = int(
-                    agent.context_compressor.threshold_tokens * _tr
-                )
-            if _gov_cfg.protect_last_n is not None:
-                # Prefer the higher continuity floor.
-                agent.context_compressor.protect_last_n = max(
-                    int(getattr(agent.context_compressor, "protect_last_n", 0) or 0),
-                    int(_gov_cfg.protect_last_n),
-                )
-        _ra().logger.info(
-            "Context policy: profile=%s mode=%s window=%s "
-            "stages info/opt/compact/emergency=%s/%s/%s/%s "
-            "compression_threshold=%.0f%%",
-            _gov_cfg.profile,
-            _gov_cfg.budget_mode,
-            f"{_ctx_for_gov:,}" if _ctx_for_gov else "n/a",
-            f"{_gov_cfg.informational_tokens:,}",
-            f"{_gov_cfg.optimization_tokens:,}",
-            f"{_gov_cfg.compaction_tokens:,}",
-            f"{_gov_cfg.emergency_tokens:,}",
-            100
-            * float(
-                getattr(agent.context_compressor, "threshold_percent", 0.7) or 0.7
-            ),
-        )
-    except Exception as _gov_init_exc:
-        _ra().logger.debug(
-            "Context governor resolve failed open: %s", _gov_init_exc
-        )
-
     # Reject models whose context window is below the minimum required
     # for reliable tool-calling workflows (64K tokens).
     _ctx = getattr(agent.context_compressor, "context_length", 0)
-    if _ctx and _ctx < MINIMUM_CONTEXT_LENGTH:
+    _allow_lmstudio_explicit_below_floor = (
+        str(getattr(agent, "provider", "") or "").strip().lower() == "lmstudio"
+        and isinstance(agent._config_context_length, int)
+        and not isinstance(agent._config_context_length, bool)
+        and agent._config_context_length > 0
+    )
+    if _ctx and _ctx < MINIMUM_CONTEXT_LENGTH and not _allow_lmstudio_explicit_below_floor:
         raise ValueError(
             f"Model {agent.model} has a context window of {_ctx:,} tokens, "
             f"which is below the minimum {MINIMUM_CONTEXT_LENGTH:,} required "
@@ -2673,35 +2605,6 @@ def init_agent(
     agent.session_estimated_cost_usd = 0.0
     agent.session_cost_status = "unknown"
     agent.session_cost_source = "none"
-    try:
-        from agent.intelligence_policy import (
-            intelligence_memory_policy_enabled,
-            intelligence_evidence_compaction_enabled,
-            intelligence_failure_policy_enabled,
-            intelligence_policy_enabled,
-            intelligence_tool_policy_enabled,
-            evidence_compaction_config,
-            memory_policy_config,
-            tool_policy_config,
-        )
-        agent._intelligence_policy_enabled = intelligence_policy_enabled(_agent_cfg)
-        agent._intelligence_memory_policy_enabled = intelligence_memory_policy_enabled(_agent_cfg)
-        agent._intelligence_memory_policy_config = memory_policy_config(_agent_cfg)
-        agent._intelligence_tool_policy_enabled = intelligence_tool_policy_enabled(_agent_cfg)
-        agent._intelligence_tool_policy_config = tool_policy_config(_agent_cfg)
-        agent._intelligence_evidence_compaction_enabled = intelligence_evidence_compaction_enabled(_agent_cfg)
-        agent._intelligence_evidence_compaction_config = evidence_compaction_config(_agent_cfg)
-        agent._intelligence_failure_policy_enabled = intelligence_failure_policy_enabled(_agent_cfg)
-    except Exception:
-        agent._intelligence_policy_enabled = False
-        agent._intelligence_memory_policy_enabled = False
-        agent._intelligence_memory_policy_config = {}
-        agent._intelligence_tool_policy_enabled = False
-        agent._intelligence_tool_policy_config = {}
-        agent._intelligence_evidence_compaction_enabled = False
-        agent._intelligence_evidence_compaction_config = {}
-        agent._intelligence_failure_policy_enabled = False
-        agent._intelligence_failure_policy_last_decision = None
     
     # ── Ollama num_ctx injection ──
     # Ollama defaults to 2048 context regardless of the model's capabilities.

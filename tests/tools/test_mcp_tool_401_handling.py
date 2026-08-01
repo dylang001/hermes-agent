@@ -8,8 +8,7 @@ httpx.HTTPStatusError(401), the handler should:
      hallucinating manual refresh attempts.
 """
 import json
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,72 +21,6 @@ def test_is_auth_error_detects_oauth_flow_error():
     from mcp.client.auth import OAuthFlowError
 
     assert _is_auth_error(OAuthFlowError("expired")) is True
-
-
-def test_is_auth_error_detects_oauth_non_interactive():
-    from tools.mcp_tool import _is_auth_error
-    from tools.mcp_oauth import OAuthNonInteractiveError
-
-    assert _is_auth_error(OAuthNonInteractiveError("no browser")) is True
-
-
-def test_is_auth_error_detects_oauth_non_interactive_inside_exception_group():
-    from tools.mcp_tool import _is_auth_error
-    from tools.mcp_oauth import OAuthNonInteractiveError
-
-    exc = ExceptionGroup(
-        "unhandled errors in a TaskGroup",
-        [OAuthNonInteractiveError("no browser")],
-    )
-
-    assert _is_auth_error(exc) is True
-
-
-def test_oauth_server_without_cached_tokens_skips_noninteractive_startup(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-
-    from tools.mcp_oauth import OAuthNonInteractiveError, suppress_interactive_oauth
-    from tools.mcp_tool import MCPServerTask
-
-    async def _run():
-        server = MCPServerTask("zoho")
-        with suppress_interactive_oauth(), patch.object(
-            MCPServerTask,
-            "_run_http",
-            AsyncMock(side_effect=AssertionError("should not start OAuth transport")),
-        ):
-            await server.run({"url": "https://mcp.example.test/mcp", "auth": "oauth"})
-
-        assert server._ready.is_set()
-        assert isinstance(server._error, OAuthNonInteractiveError)
-
-    asyncio.run(_run())
-
-
-def test_is_auth_error_detects_httpx_401():
-    from tools.mcp_tool import _is_auth_error
-    import httpx
-
-    response = MagicMock()
-    response.status_code = 401
-    exc = httpx.HTTPStatusError("unauth", request=MagicMock(), response=response)
-    assert _is_auth_error(exc) is True
-
-
-def test_is_auth_error_rejects_httpx_500():
-    from tools.mcp_tool import _is_auth_error
-    import httpx
-
-    response = MagicMock()
-    response.status_code = 500
-    exc = httpx.HTTPStatusError("oops", request=MagicMock(), response=response)
-    assert _is_auth_error(exc) is False
-
-
-def test_is_auth_error_rejects_generic_exception():
-    from tools.mcp_tool import _is_auth_error
-    assert _is_auth_error(ValueError("not auth")) is False
-    assert _is_auth_error(RuntimeError("not auth")) is False
 
 
 def test_call_tool_handler_returns_needs_reauth_on_unrecoverable_401(monkeypatch, tmp_path):

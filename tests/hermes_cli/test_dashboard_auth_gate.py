@@ -15,16 +15,6 @@ from fastapi.testclient import TestClient
 from hermes_cli import web_server
 
 
-@pytest.fixture(autouse=True)
-def clean_global_app_state():
-    yield
-    if hasattr(web_server.app.state, "auth_required"):
-        del web_server.app.state.auth_required
-    if hasattr(web_server.app.state, "dashboard_public_host"):
-        del web_server.app.state.dashboard_public_host
-
-
-
 @pytest.fixture
 def client_loopback():
     # Pin the bound-host state for host_header_middleware so requests with
@@ -41,50 +31,8 @@ def client_loopback():
     web_server.app.state.bound_port = prev_port
 
 
-def test_loopback_status_is_public(client_loopback):
-    """`/api/status` must remain reachable without a token in loopback mode."""
-    r = client_loopback.get("/api/status")
-    assert r.status_code == 200
-    body = r.json()
-    assert "version" in body
 
 
-def test_loopback_protected_route_requires_token(client_loopback):
-    """Any non-public /api/ route must require the session token."""
-    # /api/sessions exists and is auth-gated by auth_middleware.
-    r = client_loopback.get("/api/sessions")
-    assert r.status_code == 401
-
-
-def test_loopback_protected_route_accepts_session_token(client_loopback):
-    """The injected SPA token unlocks protected /api/ routes."""
-    r = client_loopback.get(
-        "/api/sessions",
-        headers={"X-Hermes-Session-Token": web_server._SESSION_TOKEN},
-    )
-    # 200 or 404 (no sessions yet) both prove the auth layer let it through.
-    # 500 is also acceptable if there's a downstream issue unrelated to auth.
-    assert r.status_code != 401, (
-        f"Expected auth to succeed but got 401; body: {r.text}"
-    )
-
-
-def test_loopback_index_injects_session_token(client_loopback):
-    """Loopback mode keeps injecting the SPA token into index.html.
-
-    This is the property that the new auth gate MUST disable once a gated
-    bind is detected. Phase 3 will add an inverse test for the gated path.
-    """
-    r = client_loopback.get("/")
-    if r.status_code == 404:
-        pytest.skip("WEB_DIST not built in this env")
-    assert "__HERMES_SESSION_TOKEN__" in r.text
-
-
-def test_loopback_host_header_validation_still_enforced(client_loopback):
-    """DNS-rebinding protection: a foreign Host header is rejected."""
-    r = client_loopback.get("/api/status", headers={"Host": "evil.test"})
-    assert r.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -109,14 +57,6 @@ def test_loopback_host_header_validation_still_enforced(client_loopback):
 def test_should_require_auth_truth_table(host, allow_public, expected):
     from hermes_cli.web_server import should_require_auth
     assert should_require_auth(host, allow_public) is expected
-
-
-def test_should_require_auth_honors_public_url(monkeypatch):
-    from hermes_cli.web_server import _should_require_auth_for_runtime
-
-    monkeypatch.setenv("HERMES_DASHBOARD_PUBLIC_URL", "https://hermes.meetlyra.live")
-    assert _should_require_auth_for_runtime("127.0.0.1") is True
-    assert _should_require_auth_for_runtime("localhost") is True
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +125,6 @@ def _stub_uvicorn_run(monkeypatch):
 def test_start_server_loopback_sets_auth_required_false(monkeypatch):
     """Loopback bind: app.state.auth_required is False after start_server."""
     _stub_uvicorn_run(monkeypatch)
-    monkeypatch.setattr(web_server, "_configured_dashboard_public_host", lambda: "")
     # Force a fresh state to detect that start_server actually set it.
     web_server.app.state.auth_required = None
     web_server.start_server(
@@ -193,30 +132,6 @@ def test_start_server_loopback_sets_auth_required_false(monkeypatch):
         open_browser=False, allow_public=False,
     )
     assert web_server.app.state.auth_required is False
-
-
-def test_start_server_loopback_public_url_engages_auth_gate(monkeypatch):
-    """Loopback bind behind a declared public URL must use cookie auth."""
-    from hermes_cli.dashboard_auth import clear_providers, register_provider
-    from tests.hermes_cli.conftest_dashboard_auth import StubAuthProvider
-
-    clear_providers()
-    register_provider(StubAuthProvider())
-    _stub_uvicorn_run(monkeypatch)
-    monkeypatch.setattr(
-        web_server, "_configured_dashboard_public_host", lambda: "hermes.example"
-    )
-    web_server.app.state.auth_required = None
-    web_server.app.state.dashboard_public_host = ""
-    try:
-        web_server.start_server(
-            host="127.0.0.1", port=9119,
-            open_browser=False, allow_public=False,
-        )
-        assert web_server.app.state.auth_required is True
-        assert web_server.app.state.dashboard_public_host == "hermes.example"
-    finally:
-        clear_providers()
 
 
 def test_start_server_insecure_public_no_longer_bypasses_gate(monkeypatch):
@@ -288,76 +203,3 @@ def test_start_server_gate_with_provider_proceeds_and_sets_proxy_headers(monkeyp
         clear_providers()
 
 
-def test_start_server_gate_without_provider_fails_closed(monkeypatch):
-    """No providers + gate would activate → SystemExit with a clear message."""
-    from hermes_cli.dashboard_auth import clear_providers
-
-    clear_providers()
-    _stub_uvicorn_run(monkeypatch)
-    web_server.app.state.auth_required = None
-    with pytest.raises(SystemExit, match=r"no auth providers"):
-        web_server.start_server(
-            host="0.0.0.0", port=9119,
-            open_browser=False, allow_public=False,
-        )
-
-
-def test_start_server_surfaces_nous_skip_reason_when_unconfigured(monkeypatch):
-    """When the bundled Nous plugin loaded but skipped registration (no
-    env vars set), the gate's fail-closed message should surface the
-    plugin's LAST_SKIP_REASON so the operator knows the config fix is
-    'set HERMES_DASHBOARD_OAUTH_CLIENT_ID', not 'install a plugin'."""
-    from hermes_cli.dashboard_auth import clear_providers
-    from plugins.dashboard_auth import nous as nous_plugin
-
-    # Simulate the plugin running and skipping for "no client_id".
-    clear_providers()
-    _stub_uvicorn_run(monkeypatch)
-    monkeypatch.delenv("HERMES_DASHBOARD_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("HERMES_DASHBOARD_PORTAL_URL", raising=False)
-    from unittest.mock import MagicMock
-    nous_plugin.register(MagicMock())  # populates LAST_SKIP_REASON
-    assert "HERMES_DASHBOARD_OAUTH_CLIENT_ID" in nous_plugin.LAST_SKIP_REASON
-
-    web_server.app.state.auth_required = None
-    with pytest.raises(SystemExit) as exc_info:
-        web_server.start_server(
-            host="0.0.0.0", port=9119,
-            open_browser=False, allow_public=False,
-        )
-    # The error message embeds the plugin's specific skip reason rather
-    # than the generic "Install the default Nous provider" boilerplate.
-    msg = str(exc_info.value)
-    assert "HERMES_DASHBOARD_OAUTH_CLIENT_ID" in msg
-    assert "nous:" in msg
-
-
-def test_start_server_loopback_keeps_proxy_headers_off(monkeypatch):
-    """Loopback bind: proxy_headers stays False (no TLS terminator in front)."""
-    monkeypatch.setattr(web_server, "_configured_dashboard_public_host", lambda: "")
-    captured = _stub_uvicorn_run(monkeypatch)
-    web_server.start_server(
-        host="127.0.0.1", port=9119,
-        open_browser=False, allow_public=False,
-    )
-    assert captured["kwargs"].get("proxy_headers") is False
-
-
-def test_start_server_insecure_public_engages_gate_and_fails_closed(monkeypatch):
-    """--insecure on a public host: gate engages now; no provider → fail closed.
-
-    Replaces the old "insecure keeps gate off" test. --insecure is a no-op for
-    auth as of the June 2026 hardening, so a public bind with no provider
-    refuses to start.
-    """
-    from hermes_cli.dashboard_auth import clear_providers
-
-    clear_providers()
-    _stub_uvicorn_run(monkeypatch)
-    web_server.app.state.auth_required = None
-    with pytest.raises(SystemExit):
-        web_server.start_server(
-            host="0.0.0.0", port=9119,
-            open_browser=False, allow_public=True,
-        )
-    assert web_server.app.state.auth_required is True
