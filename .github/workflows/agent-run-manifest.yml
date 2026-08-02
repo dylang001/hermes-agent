@@ -26,4 +26,4 @@ jobs:
       - name: Validate terminal and review evidence
         run: xargs -0 python scripts/ci/verify_agent_run_manifest.py < /tmp/agent-manifests
       - name: Run validator tests
-        run: python -m pytest -q tests/ci/test_verify_agent_run_manifest.py
+        run: python -m unittest -q tests.ci.test_verify_agent_run_manifest

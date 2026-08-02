@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import unittest
 from pathlib import Path
 
 
@@ -22,15 +23,19 @@ def valid():
     }
 
 
-def test_valid_terminal_reviewed_manifest():
-    assert module.validate(valid()) == []
+class ValidatorTests(unittest.TestCase):
+    def test_valid_terminal_reviewed_manifest(self):
+        self.assertEqual(module.validate(valid()), [])
+
+    def test_pending_or_raw_payload_fails(self):
+        value = valid()
+        value["reviewer_result"] = "pending"
+        value["evidence"] = {"tool_arguments": {"token": "unsafe"}}
+        errors = module.validate(value)
+        self.assertIn("invalid:reviewer_result", errors)
+        self.assertIn("forbidden:tool_arguments", errors)
+        self.assertIn("forbidden:token", errors)
 
 
-def test_pending_or_raw_payload_fails():
-    value = valid()
-    value["reviewer_result"] = "pending"
-    value["evidence"] = {"tool_arguments": {"token": "unsafe"}}
-    errors = module.validate(value)
-    assert "invalid:reviewer_result" in errors
-    assert "forbidden:tool_arguments" in errors
-    assert "forbidden:token" in errors
+if __name__ == "__main__":
+    unittest.main()
