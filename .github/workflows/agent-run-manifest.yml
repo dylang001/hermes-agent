@@ -1,0 +1,29 @@
+name: Agent run manifest
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Find changed agent manifests
+        shell: bash
+        run: |
+          git diff --name-only -z "${{ github.event.pull_request.base.sha }}"...HEAD -- 'audit/agent-runs/*.json' > /tmp/agent-manifests
+          if [[ ! -s /tmp/agent-manifests ]]; then
+            echo "Agent branches must add a terminal manifest under audit/agent-runs/." >&2
+            exit 1
+          fi
+      - name: Validate terminal and review evidence
+        run: xargs -0 python scripts/ci/verify_agent_run_manifest.py < /tmp/agent-manifests
+      - name: Run validator tests
+        run: python -m pytest -q tests/ci/test_verify_agent_run_manifest.py
