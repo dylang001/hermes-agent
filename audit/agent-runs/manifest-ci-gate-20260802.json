@@ -9,7 +9,7 @@
   "reviewer_result": "passed",
   "artifact_refs": {
     "branch": "agent/manifest-ci-gate-20260802",
-    "commit": "HEAD"
+    "commit": "2dbd3c4103a44ae4a61724eada1c15e45b26a3f1"
   },
   "recovery_refs": {
     "manifest": "audit/agent-runs/manifest-ci-gate-20260802.json"

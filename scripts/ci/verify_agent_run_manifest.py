@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ FORBIDDEN = {
     "prompt", "message", "messages", "tool_args", "tool_arguments", "tool_result",
     "tool_results", "email", "recipient", "password", "token", "secret",
 }
+COMMIT_SHA = re.compile(r"^[0-9a-f]{7,40}$")
 
 
 def nested_keys(value: Any) -> set[str]:
@@ -43,6 +45,8 @@ def validate(payload: dict[str, Any]) -> list[str]:
     artifacts = payload.get("artifact_refs")
     if not isinstance(artifacts, dict) or not artifacts.get("branch") or not artifacts.get("commit"):
         errors.append("invalid:artifact_refs")
+    elif not COMMIT_SHA.fullmatch(str(artifacts["commit"])):
+        errors.append("invalid:artifact_refs.commit")
     recovery = payload.get("recovery_refs")
     if not isinstance(recovery, dict) or not recovery.get("manifest"):
         errors.append("invalid:recovery_refs")

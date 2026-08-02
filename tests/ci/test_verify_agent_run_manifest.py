@@ -18,7 +18,7 @@ def valid():
         "objective_hash": "def", "privacy_classification": "restricted-source/aggregate-only",
         "started_at": "2026-08-02T20:00:00Z", "ended_at": "2026-08-02T20:01:00Z",
         "outcome": "completed", "reviewer_result": "passed",
-        "artifact_refs": {"branch": "agent/example", "commit": "HEAD"},
+        "artifact_refs": {"branch": "agent/example", "commit": "2dbd3c4103a44ae4a61724eada1c15e45b26a3f1"},
         "recovery_refs": {"manifest": "audit/agent-runs/example.json"},
     }
 
@@ -35,6 +35,11 @@ class ValidatorTests(unittest.TestCase):
         self.assertIn("invalid:reviewer_result", errors)
         self.assertIn("forbidden:tool_arguments", errors)
         self.assertIn("forbidden:token", errors)
+
+    def test_symbolic_commit_reference_fails(self):
+        value = valid()
+        value["artifact_refs"]["commit"] = "HEAD"
+        self.assertIn("invalid:artifact_refs.commit", module.validate(value))
 
 
 if __name__ == "__main__":
