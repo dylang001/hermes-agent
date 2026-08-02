@@ -1,0 +1,3 @@
+name: ce_observatory
+version: 0.1.0
+description: Read-only Context Engineering telemetry dashboard (observation mode).

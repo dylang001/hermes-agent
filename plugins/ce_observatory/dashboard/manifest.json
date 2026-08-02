@@ -1,0 +1,14 @@
+{
+  "name": "ce_observatory",
+  "label": "CE Observatory",
+  "description": "Read-only Context Engineering telemetry — shadow, pins, soak, assemble, compression. Observation mode; no V2 config changes.",
+  "icon": "Activity",
+  "version": "0.1.0",
+  "tab": {
+    "path": "/ce-observatory",
+    "position": "after:analytics"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}
