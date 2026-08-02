@@ -1,0 +1,17 @@
+{
+  "schema": "hermes-agent-run-manifest/v1",
+  "run_id_hash": "fcfd4bcbf9a71943355c56b8",
+  "objective_hash": "8fb5e5c336c493b282ff4a51",
+  "privacy_classification": "restricted-source/aggregate-only",
+  "started_at": "2026-08-02T20:33:00Z",
+  "ended_at": "2026-08-02T20:38:00Z",
+  "outcome": "completed",
+  "reviewer_result": "passed",
+  "artifact_refs": {
+    "branch": "agent/manifest-ci-gate-20260802",
+    "commit": "2dbd3c4103a44ae4a61724eada1c15e45b26a3f1"
+  },
+  "recovery_refs": {
+    "manifest": "audit/agent-runs/manifest-ci-gate-20260802.json"
+  }
+}
