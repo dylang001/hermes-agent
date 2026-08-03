@@ -47,6 +47,20 @@ class TestHostHeaderValidator:
         # Loopback — reject (we bound to a specific non-loopback name)
         assert not _is_accepted_host("localhost", "my-server.corp.net")
 
+    def test_authenticated_reverse_proxy_accepts_only_declared_public_host(self):
+        from hermes_cli.web_server import _is_accepted_host
+
+        assert _is_accepted_host(
+            "hermes.example.com:443",
+            "127.0.0.1",
+            "hermes.example.com",
+        )
+        assert not _is_accepted_host(
+            "evil.example",
+            "127.0.0.1",
+            "hermes.example.com",
+        )
+
 
 
 class TestHostHeaderMiddleware:
@@ -90,6 +104,34 @@ class TestHostHeaderMiddleware:
         resp = client.get("/api/status")
         # Should get through to the status endpoint, not a 400
         assert resp.status_code != 400
+
+    def test_authenticated_reverse_proxy_host_reaches_auth_gate(self):
+        from fastapi.testclient import TestClient
+        from hermes_cli.web_server import app
+
+        previous = {
+            "bound_host": getattr(app.state, "bound_host", None),
+            "auth_required": getattr(app.state, "auth_required", None),
+            "dashboard_public_host": getattr(
+                app.state, "dashboard_public_host", None
+            ),
+        }
+        app.state.bound_host = "127.0.0.1"
+        app.state.auth_required = True
+        app.state.dashboard_public_host = "hermes.example.com"
+        try:
+            response = TestClient(app).get(
+                "/api/status",
+                headers={"Host": "hermes.example.com"},
+            )
+            assert response.status_code != 400
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    if hasattr(app.state, key):
+                        delattr(app.state, key)
+                else:
+                    setattr(app.state, key, value)
 
 
 class TestWebSocketHostOriginGuard:
